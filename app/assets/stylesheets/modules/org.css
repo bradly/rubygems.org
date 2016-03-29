@@ -14,7 +14,23 @@
   font-style: italic;
   color: #141c22; }
 
+/* Announcement Styles */
 
+#announcement {
+  background-color: white;
+  padding: 2px 10px 2px 10px;
+  border: 1px solid transparent;
+  border-bottom: 1px solid #e9573f;
+  font-weight: 500;
+  font-size: 18px;
+  background-image: linear-gradient(to right, rgba(233, 87, 63, 0.3), #e9573f);
+  color: #e9573f;
+}
+
+#announcement .hide {
+  cursor: pointer;
+  font-size: 12px;
+}
 
 /* Error Styles */
 
@@ -124,13 +140,11 @@
     width: 70%; } }
 
 .profile__header__name {
-  word-break: break-word; }
+  overflow-x: auto; }
   @media (min-width: 780px) {
     .profile__header__name {
       padding-top: 16px; } }
-  @media (min-width: 780px) {
-    .profile__header__name {
-      padding-left: 195px; } }
+
 
 @media (max-width: 779px) {
   .profile__header__avatar {

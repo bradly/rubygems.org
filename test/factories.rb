@@ -19,14 +19,14 @@ FactoryGirl.define do
     rubygem
     version
 
-    factory :development_dependency do
+    trait :runtime do
+    end
+
+    trait :development do
       gem_dependency { Gem::Dependency.new(Rubygem.last.name, "1.0.0", :development) }
     end
 
-    factory :runtime_dependency do
-    end
-
-    factory :unresolved_dependency do
+    trait :unresolved do
       gem_dependency { Gem::Dependency.new("unresolved-gem-nothere", "1.0.0") }
     end
   end
@@ -73,7 +73,7 @@ FactoryGirl.define do
       end
 
       if evaluator.downloads
-        Redis.current[Download.key(rubygem)] = evaluator.downloads
+        GemDownload.increment(evaluator.downloads, rubygem_id: rubygem.id, version_id: 0)
       end
     end
   end
@@ -87,6 +87,7 @@ FactoryGirl.define do
     built_at 1.day.ago
     description "Some awesome gem"
     indexed true
+    metadata "foo" => "bar"
     number
     platform "ruby"
     ruby_version ">= 2.0.0"
@@ -95,6 +96,10 @@ FactoryGirl.define do
     rubygem
     size 1024
     sha256 "tdQEXD9Gb6kf4sxqvnkjKhpXzfEE96JucW4KHieJ33g="
+
+    trait :yanked do
+      indexed false
+    end
   end
 
   factory :version_history do
@@ -114,5 +119,23 @@ FactoryGirl.define do
     factory :global_web_hook do
       rubygem nil
     end
+  end
+
+  factory :oauth_application, class: Doorkeeper::Application do
+    name "Adoption Center"
+    redirect_uri "https://example.org/auth"
+    scopes "public"
+  end
+
+  factory :oauth_access_token, class: Doorkeeper::AccessToken do
+    association :application, factory: :oauth_application
+    expires_in 90.days.from_now
+    scopes "public"
+  end
+
+  factory :gem_download do
+    rubygem_id 0
+    version_id 0
+    count 0
   end
 end

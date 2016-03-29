@@ -1,15 +1,13 @@
 class SessionsController < Clearance::SessionsController
-  ssl_required
-
   def create
     @user = User.authenticate(params[:session][:who],
-                              params[:session][:password])
+      params[:session][:password])
     sign_in(@user) do |status|
       if status.success?
         redirect_back_or(url_after_create)
       else
         flash.now.notice = status.failure_message
-        render :template => 'sessions/new', :status => :unauthorized
+        render template: 'sessions/new', status: :unauthorized
       end
     end
   end

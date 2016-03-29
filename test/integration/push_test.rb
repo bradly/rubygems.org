@@ -2,7 +2,7 @@ require 'test_helper'
 
 class PushTest < ActionDispatch::IntegrationTest
   setup do
-    Dir.chdir(Rails.root.join("tmp"))
+    Dir.chdir(Dir.mktmpdir)
     @user = create(:user)
     cookies[:remember_token] = @user.remember_token
   end
@@ -17,6 +17,16 @@ class PushTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert page.has_content?("sandworm")
     assert page.has_content?("1.0.0")
+  end
+
+  test "pushing a gem when redis is down" do
+    requires_toxiproxy
+    Toxiproxy[:redis].down do
+      build_gem "sandworm", "1.0.0"
+      push_gem "sandworm-1.0.0.gem"
+      assert_response 500
+      assert_equal "Server error. Please try again.", response.body
+    end
   end
 
   test "push a new version of a gem" do
@@ -66,11 +76,14 @@ class PushTest < ActionDispatch::IntegrationTest
     push_gem Rails.root.join("test/gems/bad-characters-1.0.0.gem")
 
     assert_response :unprocessable_entity
-    assert_match /cannot process this gem/, response.body
+    assert_match(/cannot process this gem/, response.body)
   end
 
   def push_gem(path)
-    post api_v1_rubygems_path, File.read(path), {"HTTP_AUTHORIZATION" => @user.api_key, "CONTENT_TYPE" => "application/octet-stream"}
+    post api_v1_rubygems_path,
+      File.read(path),
+      "CONTENT_TYPE" => "application/octet-stream",
+      "HTTP_AUTHORIZATION" => @user.api_key
   end
 
   teardown do

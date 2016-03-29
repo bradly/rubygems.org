@@ -1,29 +1,40 @@
 class Rubygem < ActiveRecord::Base
   include Patterns
+  include RubygemSearchable
 
-  has_many :owners, :through => :ownerships, :source => :user
-  has_many :ownerships, :dependent => :destroy
-  has_many :subscribers, :through => :subscriptions, :source => :user
-  has_many :subscriptions, :dependent => :destroy
-  has_many :versions, :dependent => :destroy, :validate => false
-  has_many :web_hooks, :dependent => :destroy
-  has_one :linkset, :dependent => :destroy
+  has_many :owners, through: :ownerships, source: :user
+  has_many :ownerships, dependent: :destroy
+  has_many :subscribers, through: :subscriptions, source: :user
+  has_many :subscriptions, dependent: :destroy
+  has_many :versions, dependent: :destroy, validate: false
+  has_many :web_hooks, dependent: :destroy
+  has_one :linkset, dependent: :destroy
+  has_one :gem_download, -> { where(version_id: 0) }
 
-  validate :ensure_name_format, :if => :needs_name_validation?
-  validates :name, :presence => true, :uniqueness => true
+  validate :ensure_name_format, if: :needs_name_validation?
+  validates :name,
+    presence: true,
+    uniqueness: true,
+    exclusion: { in: GEM_NAME_BLACKLIST, message: "'%{value}' is a reserved gem name." }
 
   after_create :update_unresolved
   before_destroy :mark_unresolved
+
+  # TODO: Remove this once we move to GemDownload only
+  after_create :create_gem_download
+  def create_gem_download
+    GemDownload.create!(count: 0, rubygem_id: id, version_id: 0)
+  end
 
   def self.with_versions
     where("rubygems.id IN (SELECT rubygem_id FROM versions where versions.indexed IS true)")
   end
 
   def self.with_one_version
-    select('rubygems.*').
-    joins(:versions).
-    group(column_names.map { |name| "rubygems.#{name}" }.join(', ')).
-    having('COUNT(versions.id) = 1')
+    select('rubygems.*')
+      .joins(:versions)
+      .group(column_names.map { |name| "rubygems.#{name}" }.join(', '))
+      .having('COUNT(versions.id) = 1')
   end
 
   def self.name_is(name)
@@ -33,36 +44,31 @@ class Rubygem < ActiveRecord::Base
     where("UPPER(name) = UPPER(?)", name.strip).limit(1)
   end
 
-  def self.search(query)
-    conditions = <<-SQL
-      versions.indexed and
-        (upper(name) like upper(:query) or
-         upper(translate(name, '#{SPECIAL_CHARACTERS}', '#{' ' * SPECIAL_CHARACTERS.length}')) like upper(:query))
-    SQL
-
-    where(conditions, {query: "%#{query.strip}%"}).
-      includes(:versions).
-      references(:versions).
-      by_downloads
-  end
-
   def self.name_starts_with(letter)
-    where("upper(name) like upper(?)", "#{letter}%")
+    where("UPPER(name) LIKE UPPER(?)", "#{letter}%")
   end
 
   def self.reverse_dependencies(name)
-    find(Version.reverse_dependencies(name).pluck(:rubygem_id))
+    where(id: Version.reverse_dependencies(name).select(:rubygem_id))
+  end
+
+  def self.reverse_development_dependencies(name)
+    where(id: Version.reverse_development_dependencies(name).select(:rubygem_id))
+  end
+
+  def self.reverse_runtime_dependencies(name)
+    where(id: Version.reverse_runtime_dependencies(name).select(:rubygem_id))
   end
 
   def self.total_count
     with_versions.count
   end
 
-  def self.latest(limit=5)
+  def self.latest(limit = 5)
     with_one_version.order(created_at: :desc).limit(limit)
   end
 
-  def self.downloaded(limit=5)
+  def self.downloaded(limit = 5)
     with_versions.by_downloads.limit(limit)
   end
 
@@ -72,14 +78,6 @@ class Rubygem < ActiveRecord::Base
 
   def self.letterize(letter)
     letter =~ /\A[A-Za-z]\z/ ? letter.upcase : 'A'
-  end
-
-  def self.monthly_dates
-    (2..31).map { |n| n.days.ago.to_date }.reverse
-  end
-
-  def self.monthly_short_dates
-    monthly_dates.map { |date| date.strftime("%m/%d") }
   end
 
   def self.versions_key(name)
@@ -95,11 +93,8 @@ class Rubygem < ActiveRecord::Base
   end
 
   def self.current_rubygems_release
-    if (g = find_by(name: "rubygems-update")) && (v = g.versions.release.indexed.latest.first)
-      v.number
-    else
-      "0.0.0"
-    end
+    rubygem = find_by(name: "rubygems-update")
+    rubygem && rubygem.versions.release.indexed.latest.first
   end
 
   def all_errors(version = nil)
@@ -132,7 +127,7 @@ class Rubygem < ActiveRecord::Base
 
   def owned_by?(user)
     return false unless user
-    ownerships.exists?(:user_id => user.id)
+    ownerships.exists?(user_id: user.id)
   end
 
   def to_s
@@ -140,14 +135,11 @@ class Rubygem < ActiveRecord::Base
   end
 
   def downloads
-    Download.for(self)
+    gem_download.try(:count) || 0
   end
 
-  def downloads_today
-    versions.to_a.sum {|v| Download.today(v) }
-  end
-
-  def payload(version=versions.most_recent, host_with_port=Gemcutter::HOST)
+  def payload(version = versions.most_recent, protocol = Gemcutter::PROTOCOL, host_with_port = Gemcutter::HOST)
+    deps = version.dependencies.to_a
     {
       'name'              => name,
       'downloads'         => downloads,
@@ -157,35 +149,33 @@ class Rubygem < ActiveRecord::Base
       'authors'           => version.authors,
       'info'              => version.info,
       'licenses'          => version.licenses,
-      'project_uri'       => "http://#{host_with_port}/gems/#{name}",
-      'gem_uri'           => "http://#{host_with_port}/gems/#{version.full_name}.gem",
+      'metadata'          => version.metadata,
+      'sha'               => version.sha256_hex,
+      'project_uri'       => "#{protocol}://#{host_with_port}/gems/#{name}",
+      'gem_uri'           => "#{protocol}://#{host_with_port}/gems/#{version.full_name}.gem",
       'homepage_uri'      => linkset.try(:home),
       'wiki_uri'          => linkset.try(:wiki),
-      'documentation_uri' => linkset.try(:docs),
+      'documentation_uri' => linkset.try(:docs).presence || version.documentation_path,
       'mailing_list_uri'  => linkset.try(:mail),
       'source_code_uri'   => linkset.try(:code),
       'bug_tracker_uri'   => linkset.try(:bugs),
       'dependencies'      => {
-        'development' => version.dependencies.development.to_a,
-        'runtime'     => version.dependencies.runtime.to_a
+        'development' => deps.select { |r| r.rubygem && 'development' == r.scope },
+        'runtime'     => deps.select { |r| r.rubygem && 'runtime' == r.scope }
       }
     }
   end
 
-  def as_json(options={})
+  def as_json(*)
     payload
   end
 
-  def to_xml(options={})
-    payload.to_xml(options.merge(:root => 'rubygem'))
+  def to_xml(options = {})
+    payload.to_xml(options.merge(root: 'rubygem'))
   end
 
   def to_param
-    name.gsub(/[^#{Patterns::ALLOWED_CHARACTERS}]/, '')
-  end
-
-  def with_downloads
-    "#{name} (#{downloads})"
+    name.remove(/[^#{Patterns::ALLOWED_CHARACTERS}]/)
   end
 
   def pushable?
@@ -193,7 +183,7 @@ class Rubygem < ActiveRecord::Base
   end
 
   def create_ownership(user)
-    ownerships.create(:user => user) if unowned?
+    ownerships.create(user: user) if unowned?
   end
 
   def update_versions!(version, spec)
@@ -202,7 +192,7 @@ class Rubygem < ActiveRecord::Base
 
   def update_dependencies!(version, spec)
     spec.dependencies.each do |dependency|
-      version.dependencies.create!(:gem_dependency => dependency)
+      version.dependencies.create!(gem_dependency: dependency)
     end
   rescue ActiveRecord::RecordInvalid => ex
     # ActiveRecord can't chain a nested error here, so we have to add and reraise
@@ -219,33 +209,33 @@ class Rubygem < ActiveRecord::Base
   def update_attributes_from_gem_specification!(version, spec)
     Rubygem.transaction do
       save!
-      update_versions!     version, spec
+      update_versions! version, spec
       update_dependencies! version, spec
-      update_linkset!      spec
+      update_linkset! spec
     end
   end
 
-  delegate :count,
-    :to => :versions,
-    :prefix => true
+  delegate :count, to: :versions, prefix: true
 
   def yanked_versions?
     versions.yanked.exists?
   end
 
   def reorder_versions
-    numbers = self.reload.versions.sort.reverse.map(&:number).uniq
+    numbers = reload.versions.sort.reverse.map(&:number).uniq
 
-    self.versions.each do |version|
+    versions.each do |version|
       Version.find(version.id).update_column(:position, numbers.index(version.number))
     end
 
-    self.versions.update_all(:latest => false)
+    versions.update_all(latest: false)
 
-    self.versions.release.indexed.inject(Hash.new{|h, k| h[k] = []}) do |platforms, version|
-      platforms[version.platform] << version
-      platforms
-    end.each_value do |platforms|
+    versions_of_platforms = versions
+      .release
+      .indexed
+      .group_by(&:platform)
+
+    versions_of_platforms.each_value do |platforms|
       Version.find(platforms.sort.last.id).update_column(:latest, true)
     end
   end
@@ -256,18 +246,14 @@ class Rubygem < ActiveRecord::Base
   end
 
   def find_version_from_spec(spec)
-    self.versions.find_by_number_and_platform(spec.version.to_s, spec.original_platform.to_s)
+    versions.find_by_number_and_platform(spec.version.to_s, spec.original_platform.to_s)
   end
 
   def find_or_initialize_version_from_spec(spec)
-    version = self.versions.find_or_initialize_by(number: spec.version.to_s, platform: spec.original_platform.to_s)
+    version = versions.find_or_initialize_by(number: spec.version.to_s,
+                                             platform: spec.original_platform.to_s)
     version.rubygem = self
     version
-  end
-
-  def monthly_downloads
-    key_dates = self.class.monthly_dates.map(&:to_s)
-    Redis.current.hmget(Download.history_key(self), *key_dates).map(&:to_i)
   end
 
   def first_built_date
@@ -291,7 +277,7 @@ class Rubygem < ActiveRecord::Base
   end
 
   def update_unresolved
-    Dependency.where(:unresolved_name => name).each do |dependency|
+    Dependency.where(unresolved_name: name).find_each do |dependency|
       dependency.update_resolved(self)
     end
 

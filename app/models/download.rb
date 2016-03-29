@@ -1,20 +1,38 @@
 class Download
-  COUNT_KEY     = "downloads"
-  ALL_KEY       = "downloads:all"
+  COUNT_KEY     = "downloads".freeze
+  ALL_KEY       = "downloads:all".freeze
 
-  def self.incr(name, full_name)
+  def self.incr(name, full_name, count: 1)
     today = Time.zone.today.to_s
-    Redis.current.incr(COUNT_KEY)
-    Redis.current.incr(rubygem_key(name))
-    Redis.current.incr(version_key(full_name))
-    Redis.current.zincrby(today_key, 1, full_name)
-    Redis.current.zincrby(ALL_KEY, 1, full_name)
-    Redis.current.hincrby(version_history_key(full_name), today, 1)
-    Redis.current.hincrby(rubygem_history_key(name), today, 1)
+    redis = Redis.current
+
+    redis.incrby(COUNT_KEY, count)
+    redis.incrby(rubygem_key(name), count)
+    redis.incrby(version_key(full_name), count)
+    redis.zincrby(today_key, count, full_name)
+    redis.zincrby(ALL_KEY, count, full_name)
+    redis.hincrby(version_history_key(full_name), today, count)
+    redis.hincrby(rubygem_history_key(name), today, count)
+  end
+
+  # Takes an array where members have the form
+  #   [name, full_name, count]
+  # E.g.:
+  #   ['rake', 'rake-10.4.2', 1]
+  def self.bulk_update(ary)
+    Redis.current.multi do
+      Redis.current.pipelined do
+        ary.each do |name, full_name, count|
+          incr(name, full_name, count: count)
+        end
+      end
+    end
   end
 
   def self.count
     Redis.current.get(COUNT_KEY).to_i
+  rescue Redis::CannotConnectError
+    nil
   end
 
   def self.today(*versions)
@@ -35,16 +53,16 @@ class Download
     Redis.current.get(version_key(full_name)).to_i
   end
 
-  def self.most_downloaded_today(n=5)
-    items = Redis.current.zrevrange(today_key, 0, (n-1), :with_scores => true)
+  def self.most_downloaded_today(n = 5)
+    items = Redis.current.zrevrange(today_key, 0, (n - 1), with_scores: true)
     items.collect do |full_name, downloads|
       version = Version.find_by_full_name(full_name)
       [version, downloads.to_i]
     end
   end
 
-  def self.most_downloaded_all_time(n=5)
-    items = Redis.current.zrevrange(ALL_KEY, 0, (n-1), :with_scores => true)
+  def self.most_downloaded_all_time(n = 5)
+    items = Redis.current.zrevrange(ALL_KEY, 0, (n - 1), with_scores: true)
     items.collect do |full_name, downloads|
       version = Version.find_by_full_name(full_name)
       [version, downloads.to_i]
@@ -59,18 +77,18 @@ class Download
       key = history_key(version)
 
       Redis.current.hmget(key, *dates).zip(dates).each do |count, date|
-        if count
-          count = count.to_i
-        else
-          vh = VersionHistory.where(:version_id => version.id,
-                                    :day => date).first
-
-          count = vh ? vh.count : 0
+        count = begin
+          if count
+            count.to_i
+          else
+            vh = VersionHistory.find_by(version_id: version.id, day: date)
+            vh ? vh.count : 0
+          end
         end
 
         downloads["#{version.id}-#{date}"] = count
       end
-      downloads["#{version.id}-#{Time.zone.today}"] = self.today(version)
+      downloads["#{version.id}-#{Time.zone.today}"] = today(version)
     end
 
     downloads
@@ -82,36 +100,29 @@ class Download
     dates = (start..stop).map(&:to_s)
 
     Redis.current.hmget(history_key(version), *dates).zip(dates).each do |count, date|
-      if count
-        count = count.to_i
-      else
-        vh = VersionHistory.where(:version_id => version.id,
-                                  :day => date).first
-
-        if vh
-          count = vh.count
+      count = begin
+        if count
+          count.to_i
         else
-          count = 0
+          vh = VersionHistory.find_by(version_id: version.id, day: date)
+          vh ? vh.count : 0
         end
       end
 
       downloads[date] = count
     end
 
-    if stop == Time.zone.today
-      stop -= 1.day
-      downloads["#{Time.zone.today}"] = self.today(version)
-    end
+    downloads[Time.zone.today.to_s] = today(version) if stop == Time.zone.today
 
     downloads
   end
 
   def self.copy_to_sql(version, date)
     count = Redis.current.hget(history_key(version), date)
-
-    if vh = VersionHistory.for(version, date)
-      vh.count = count
-      vh.save
+    version_history = VersionHistory.for(version, date)
+    if version_history
+      version_history.count = count
+      version_history.save
     else
       VersionHistory.make(version, date, count)
     end
@@ -136,12 +147,12 @@ class Download
     count
   end
 
-  def self.migrate_to_sql(version, remove=true)
+  def self.migrate_to_sql(version, remove = true)
     key = history_key version
 
     dates = Redis.current.hkeys(key)
 
-    back = 1.days.ago.to_date
+    back = 1.day.ago.to_date
 
     dates.delete_if { |e| Date.parse(e) >= back }
 
@@ -158,7 +169,6 @@ class Download
     count = 0
     versions = Version.all
     total = versions.size
-
 
     versions.each do |ver|
       i += 1
@@ -202,20 +212,8 @@ class Download
   end
 
   def self.rank(version)
-    if rank = Redis.current.zrevrank(today_key, version.full_name)
-      rank + 1
-    else
-      0
-    end
-  end
-
-  def self.highest_rank(versions)
-    ranks = versions.map { |version| Download.rank(version) }.reject(&:zero?)
-    if ranks.empty?
-      0
-    else
-      ranks.min
-    end
+    rank = Redis.current.zrevrank(today_key, version.full_name)
+    rank ? rank + 1 : 0
   end
 
   def self.cleanup_today_keys
@@ -228,7 +226,7 @@ class Download
     today_keys
   end
 
-  def self.today_key(date_string=Time.zone.today)
+  def self.today_key(date_string = Time.zone.today)
     "downloads:today:#{date_string}"
   end
 

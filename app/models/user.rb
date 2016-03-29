@@ -1,35 +1,40 @@
 class User < ActiveRecord::Base
   include Clearance::User
   include Gravtastic
-  is_gravtastic :default => "retro"
+  is_gravtastic default: "retro"
 
-  PERMITTED_ATTRS = [:bio, :email, :handle, :hide_email, :location, :password, :website]
+  PERMITTED_ATTRS = [:bio, :email, :handle, :hide_email, :location, :password, :website].freeze
 
-  has_many :rubygems, :through => :ownerships
+  has_many :rubygems, through: :ownerships
 
-  has_many :subscribed_gems, -> { order("name ASC") },
-    :through => :subscriptions,
-    :source  => :rubygem
+  has_many :subscribed_gems, -> { order("name ASC") }, through: :subscriptions, source: :rubygem
 
+  has_many :deletions
   has_many :ownerships
   has_many :subscriptions
   has_many :web_hooks
 
-  before_validation :regenerate_token, :if => :email_changed?, :on => :update
+  before_validation :regenerate_token, if: :email_changed?, on: :update
   before_create :generate_api_key
 
-  validates_uniqueness_of :handle, :allow_nil => true
-  validates_format_of :handle, :with => /\A[A-Za-z][A-Za-z_\-0-9]*\z/, :allow_nil => true
-  validates_length_of :handle, :within => 2..40, :allow_nil => true
+  validates :handle, uniqueness: true, allow_nil: true
+  validates :handle, format: {
+    with: /\A[A-Za-z][A-Za-z_\-0-9]*\z/,
+    message: "must start with a letter and can only contain letters, numbers, underscores, and dashes"
+  }, allow_nil: true
+  validates :handle, length: { within: 2..40 }, allow_nil: true
 
   def self.authenticate(who, password)
-    if user = find_by(email: who.downcase) || find_by(handle: who)
-      user if user.authenticated?(password)
-    end
+    user = find_by(email: who.downcase) || find_by(handle: who)
+    user if user && user.authenticated?(password)
   end
 
   def self.find_by_slug!(slug)
     find_by(id: slug) || find_by!(handle: slug)
+  end
+
+  def self.find_by_name(name)
+    find_by(email: name) || find_by(handle: name)
   end
 
   def name
@@ -56,17 +61,17 @@ class User < ActiveRecord::Base
   end
 
   def payload
-    attrs = {"email" => email}
-
+    attrs = { "id" => id, "handle" => handle }
+    attrs["email"] = email unless hide_email
     attrs
   end
 
-  def as_json(options={})
+  def as_json(*)
     payload
   end
 
-  def to_xml(options={})
-    payload.to_xml(options.merge(:root => 'user'))
+  def to_xml(options = {})
+    payload.to_xml(options.merge(root: 'user'))
   end
 
   def to_yaml(*args)
@@ -74,7 +79,9 @@ class User < ActiveRecord::Base
   end
 
   def encode_with(coder)
-    coder.tag, coder.implicit, coder.map = nil, true, payload
+    coder.tag = nil
+    coder.implicit = true
+    coder.map = payload
   end
 
   def regenerate_token
@@ -89,15 +96,11 @@ class User < ActiveRecord::Base
     rubygems.to_a.sum(&:downloads)
   end
 
-  def today_downloads_count
-    rubygems.to_a.sum(&:downloads_today)
-  end
-
   def rubygems_downloaded
-    rubygems.with_versions.sort_by{ |rubygem| -rubygem.downloads }
+    rubygems.with_versions.sort_by { |rubygem| -rubygem.downloads }
   end
 
   def total_rubygems_count
-    rubygems.count
+    rubygems.with_versions.count
   end
 end

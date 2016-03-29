@@ -1,20 +1,6 @@
 require 'test_helper'
 
 class PusherTest < ActiveSupport::TestCase
-  context "getting the server path" do
-    should "return just the root server path with no args" do
-      assert_equal "#{Rails.root}/server", Pusher.server_path
-    end
-
-    should "return a directory inside if one argument is given" do
-      assert_equal "#{Rails.root}/server/gems", Pusher.server_path("gems")
-    end
-
-    should "return a directory inside if more than one argument is given" do
-      assert_equal "#{Rails.root}/server/quick/Marshal.4.8", Pusher.server_path("quick", "Marshal.4.8")
-    end
-  end
-
   context "creating a new gemcutter" do
     setup do
       @user = create(:user)
@@ -41,46 +27,46 @@ class PusherTest < ActiveSupport::TestCase
 
     context "processing incoming gems" do
       should "work normally when things go well" do
-        mock(@cutter).pull_spec { true }
-        mock(@cutter).find { true }
-        stub(@cutter).authorize { true }
-        mock(@cutter).save
+        @cutter.stubs(:pull_spec).returns true
+        @cutter.stubs(:find).returns true
+        @cutter.stubs(:authorize).returns true
+        @cutter.stubs(:save)
 
         @cutter.process
       end
 
       should "not attempt to find rubygem if spec can't be pulled" do
-        mock(@cutter).pull_spec { false }
-        mock(@cutter).find.never
-        mock(@cutter).authorize.never
-        mock(@cutter).save.never
+        @cutter.stubs(:pull_spec).returns false
+        @cutter.stubs(:find).never
+        @cutter.stubs(:authorize).never
+        @cutter.stubs(:save).never
         @cutter.process
       end
 
       should "not attempt to authorize if not found" do
-        mock(@cutter).pull_spec { true }
-        mock(@cutter).find { nil }
-        mock(@cutter).authorize.never
-        mock(@cutter).save.never
+        @cutter.stubs(:pull_spec).returns true
+        @cutter.stubs(:find)
+        @cutter.stubs(:authorize).never
+        @cutter.stubs(:save).never
 
         @cutter.process
       end
 
       should "not attempt to save if not authorized" do
-        mock(@cutter).pull_spec { true }
-        mock(@cutter).find { true }
-        mock(@cutter).authorize { false }
-        mock(@cutter).save.never
+        @cutter.stubs(:pull_spec).returns true
+        @cutter.stubs(:find).returns true
+        @cutter.stubs(:authorize).returns false
+        @cutter.stubs(:save).never
 
         @cutter.process
       end
     end
 
     should "not be able to pull spec from a bad path" do
-      stub(@cutter).body.stub!.read { nil }
+      @cutter.stubs(:body).stubs(:stub!).stubs(:read)
       @cutter.pull_spec
       assert_nil @cutter.spec
-      assert_match %r{RubyGems\.org cannot process this gem}, @cutter.message
+      assert_match(/RubyGems\.org cannot process this gem/, @cutter.message)
       assert_equal @cutter.code, 422
     end
 
@@ -89,9 +75,8 @@ class PusherTest < ActiveSupport::TestCase
       @cutter = Pusher.new(@user, @gem)
       @cutter.pull_spec
       assert_nil @cutter.spec
-      assert_match %r{RubyGems\.org cannot process this gem}, @cutter.message
-      assert_match %r{The metadata is invalid.}, @cutter.message
-      assert_match %r{ActionController::Routing::RouteSet::NamedRouteCollection}, @cutter.message
+      assert_match(/RubyGems\.org cannot process this gem/, @cutter.message)
+      assert_match(/ActionController::Routing::RouteSet::NamedRouteCollection/, @cutter.message)
       assert_equal @cutter.code, 422
     end
 
@@ -101,9 +86,8 @@ class PusherTest < ActiveSupport::TestCase
         @cutter = Pusher.new(@user, @gem)
         @cutter.pull_spec
         assert_nil @cutter.spec
-        assert_includes @cutter.message, %{RubyGems.org cannot process this gem}
-        assert_includes @cutter.message, %{The metadata is invalid}
-        assert_includes @cutter.message, %{Tried to load unspecified class: Symbol}
+        assert_includes @cutter.message, %(RubyGems.org cannot process this gem)
+        assert_includes @cutter.message, %(Tried to load unspecified class: Symbol)
         assert_equal @cutter.code, 422
       end
     end
@@ -116,39 +100,46 @@ class PusherTest < ActiveSupport::TestCase
       assert_not_nil @cutter.spec.dependencies.first.requirement
     end
 
+    should "not be able to pull spec when no data available" do
+      @gem = gem_file("aliases-nodata-0.0.1.gem")
+      @cutter = Pusher.new(@user, @gem)
+      @cutter.pull_spec
+      assert_includes @cutter.message, %{package content (data.tar.gz) is missing}
+    end
+
     should "post info to the remote bundler API" do
       @cutter.pull_spec
 
-      stub(@cutter.spec).platform { Gem::Platform.new("x86-java1.6") }
+      @cutter.spec.stubs(:platform).returns Gem::Platform.new("x86-java1.6")
 
       @cutter.bundler_api_url = "http://test.com"
 
-      obj = Object.new
+      obj = mock
       post_data = nil
 
-      stub(obj).post { |*x| post_data = x }
-
+      obj.stubs(:post).with { |*value| post_data = value }
       @cutter.update_remote_bundler_api obj
 
-      url, payload, options = post_data
+      _, payload = post_data
 
-      params = MultiJson.load payload
+      params = JSON.load payload
 
       assert_equal "test",  params["name"]
       assert_equal "0.0.0", params["version"]
       assert_equal "x86-java-1.6", params["platform"]
-      assert_equal false,   params["prerelease"]
+      assert_equal false, params["prerelease"]
     end
 
     context "initialize new gem with find if one does not exist" do
       setup do
-        spec = "spec"
-        stub(spec).name { "some name" }
-        stub(spec).version { "1.3.3.7" }
-        stub(spec).original_platform { "ruby" }
-        stub(@cutter).spec { spec }
-        stub(@cutter).size { 5 }
-        stub(@cutter).body { StringIO.new("dummy body") }
+        spec = mock
+        spec.expects(:name).returns "some name"
+        spec.expects(:version).returns "1.3.3.7"
+        spec.expects(:original_platform).returns "ruby"
+        @cutter.stubs(:spec).returns spec
+        @cutter.stubs(:size).returns 5
+        @cutter.stubs(:body).returns StringIO.new("dummy body")
+
         @cutter.find
       end
 
@@ -157,7 +148,7 @@ class PusherTest < ActiveSupport::TestCase
       end
 
       should "set version" do
-        assert_equal '1.3.3.7',  @cutter.version.number
+        assert_equal '1.3.3.7', @cutter.version.number
       end
 
       should "set gem version size" do
@@ -165,19 +156,19 @@ class PusherTest < ActiveSupport::TestCase
       end
 
       should "set sha256" do
-        expectedSha = Digest::SHA2.base64digest(@cutter.body.string)
-        assert_equal expectedSha, @cutter.version.sha256
+        expected_sha = Digest::SHA2.base64digest(@cutter.body.string)
+        assert_equal expected_sha, @cutter.version.sha256
       end
     end
 
     context "finding an existing gem" do
       should "bring up existing gem with matching spec" do
         @rubygem = create(:rubygem)
-        spec = "spec"
-        stub(spec).name { @rubygem.name }
-        stub(spec).version { "1.3.3.7" }
-        stub(spec).original_platform { "ruby" }
-        stub(@cutter).spec { spec }
+        spec = mock
+        spec.stubs(:name).returns @rubygem.name
+        spec.stubs(:version).returns "1.3.3.7"
+        spec.stubs(:original_platform).returns "ruby"
+        @cutter.stubs(:spec).returns spec
         @cutter.find
 
         assert_equal @rubygem, @cutter.rubygem
@@ -186,29 +177,29 @@ class PusherTest < ActiveSupport::TestCase
 
       should "error out when changing case with usuable versions" do
         @rubygem = create(:rubygem)
-        create(:version, :rubygem => @rubygem)
+        create(:version, rubygem: @rubygem)
 
         assert_not_equal @rubygem.name, @rubygem.name.upcase
 
-        spec = "spec"
-        stub(spec).name { @rubygem.name.upcase }
-        stub(spec).version { "1.3.3.7" }
-        stub(spec).original_platform { "ruby" }
-        stub(@cutter).spec { spec }
-        assert !@cutter.find
+        spec = mock
+        spec.expects(:name).returns @rubygem.name.upcase
+        spec.expects(:version).returns "1.3.3.7"
+        spec.expects(:original_platform).returns "ruby"
+        @cutter.stubs(:spec).returns spec
+        refute @cutter.find
 
-        assert_match /Unable to change case/, @cutter.message
+        assert_match(/Unable to change case/, @cutter.message)
       end
 
       should "update the DB to reflect the case in the spec" do
         @rubygem = create(:rubygem)
         assert_not_equal @rubygem.name, @rubygem.name.upcase
 
-        spec = "spec"
-        stub(spec).name { @rubygem.name.upcase }
-        stub(spec).version { "1.3.3.7" }
-        stub(spec).original_platform { "ruby" }
-        stub(@cutter).spec { spec }
+        spec = mock
+        spec.stubs(:name).returns @rubygem.name.upcase
+        spec.stubs(:version).returns "1.3.3.7"
+        spec.stubs(:original_platform).returns "ruby"
+        @cutter.stubs(:spec).returns spec
         @cutter.find
 
         @cutter.rubygem.save
@@ -220,18 +211,18 @@ class PusherTest < ActiveSupport::TestCase
 
     context "checking if the rubygem can be pushed to" do
       should "be true if rubygem is new" do
-        stub(@cutter).rubygem { Rubygem.new }
+        @cutter.stubs(:rubygem).returns Rubygem.new
         assert @cutter.authorize
       end
 
       context "with a existing rubygem" do
         setup do
           @rubygem = create(:rubygem)
-          stub(@cutter).rubygem { @rubygem }
+          @cutter.stubs(:rubygem).returns @rubygem
         end
 
         should "be true if owned by the user" do
-          @rubygem.ownerships.create(:user => @user)
+          @rubygem.ownerships.create(user: @user)
           assert @cutter.authorize
         end
 
@@ -240,14 +231,14 @@ class PusherTest < ActiveSupport::TestCase
         end
 
         should "be false if not owned by user and an indexed version exists" do
-          create(:version, :rubygem => @rubygem, :number => '0.1.1')
-          assert ! @cutter.authorize
+          create(:version, rubygem: @rubygem, number: '0.1.1')
+          refute @cutter.authorize
           assert_equal "You do not have permission to push to this gem.", @cutter.message
           assert_equal 403, @cutter.code
         end
 
         should "be true if not owned by user but no indexed versions exist" do
-          create(:version, :rubygem => @rubygem, :number => '0.1.1', :indexed => false)
+          create(:version, rubygem: @rubygem, number: '0.1.1', indexed: false)
           assert @cutter.authorize
         end
       end
@@ -256,18 +247,17 @@ class PusherTest < ActiveSupport::TestCase
     context "successfully saving a gemcutter" do
       setup do
         @rubygem = create(:rubygem)
-        stub(@cutter).rubygem { @rubygem }
-        create(:version, :rubygem => @rubygem, :number => '0.1.1')
-        stub(@cutter).version { @rubygem.versions[0] }
-        stub(@rubygem).update_attributes_from_gem_specification!
-        any_instance_of(Indexer) {|i| stub(i).write_gem }
+        @cutter.stubs(:rubygem).returns @rubygem
+        create(:version, rubygem: @rubygem, number: '0.1.1')
+        @cutter.stubs(:version).returns @rubygem.versions[0]
+        @rubygem.stubs(:update_attributes_from_gem_specification!)
+        Indexer.any_instance.stubs(:write_gem)
         @cutter.save
       end
 
       should "update rubygem attributes" do
-        assert_received(@rubygem) do |rubygem|
-            rubygem.update_attributes_from_gem_specification!(@cutter.version,
-                                                              @cutter.spec)
+        assert_received(@rubygem, :update_attributes_from_gem_specification!) do |rubygem|
+          rubygem.with(@cutter.version, @cutter.spec)
         end
       end
 

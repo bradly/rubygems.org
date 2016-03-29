@@ -1,7 +1,14 @@
 <% @title = @rubygem.name %>
 <% @subtitle = @latest_version.try(:slug) %>
 
-<%= content_for :head, auto_discovery_link_tag(:atom, rubygem_versions_path(@rubygem, format: "atom"), {title: "#{@rubygem.name} Version Feed"}) %>
+<% content_for :head do %>
+  <%= auto_discovery_link_tag(:atom, rubygem_versions_path(@rubygem, format: "atom"), {title: "#{@rubygem.name} Version Feed"}) %>
+  <% if @rubygem.versions.present? && @latest_version.indexed %>
+    <link rel="canonical" href="<%= rubygem_version_url(@rubygem, @latest_version.slug) %>" />
+  <% else %>
+    <meta name="robots" content="noindex" />
+  <% end %>
+<% end %>
 
 <% if @rubygem.versions.count.zero? %>
   <div class="t-body">
@@ -18,7 +25,7 @@
         </div>
       <% else %>
         <div class="t-body">
-          <p><%= t('.yanked_notice', :more_info_link => link_to(t('.yank_info_link_text'), "http://help.rubygems.org/faqs/gemcutter/removing-a-published-rubygem")).html_safe %></p>
+          <p><%=t '.yanked_notice' %></p>
         </div>
       <% end %>
 
@@ -69,7 +76,7 @@
           <% end %>
 
           <% if @latest_version.sha256.present? %>
-            <h3 class="t-list__heading">Sha 256 checksum:</h3>
+            <h3 class="t-list__heading"><%= t '.sha_256_checksum' %>:</h3>
             <div class="gem__sha">
               <%= @latest_version.sha256_hex %>
             </div>
@@ -80,63 +87,58 @@
 
     <div class="gem__aside l-col--r--pad">
       <% if @latest_version.indexed %>
-        <% unless Rails.env.recovery? %>
-          <div class="gem__downloads-wrap" data-href="<%= api_v1_download_path(@latest_version.full_name, :format => 'json') %>">
-            <h2 class="gem__downloads__heading t-text--s">
-              <%= t('stats.show.total_downloads') %>
-              <span class="gem__downloads"><%= number_with_delimiter(@rubygem.downloads) %></span>
-            </h2>
-            <h2 class="gem__downloads__heading t-text--s">
-              <%= t('.downloads_for_this_version') %>
-              <span class="gem__downloads"><%= number_with_delimiter(@latest_version.downloads_count) %></span>
-            </h2>
-            <% if @versions.present? %>
-              <% if show_all_versions_link?(@rubygem) %>
-                <%= link_to t('.show_all_versions', :count => @rubygem.versions.count), rubygem_versions_url(@rubygem), :class => "gem__see-all-versions t-link--gray t-link--has-arrow" %>
-              <% end %>
+        <div class="gem__downloads-wrap" data-href="<%= api_v1_download_path(@latest_version.full_name, :format => 'json') %>">
+          <h2 class="gem__downloads__heading t-text--s">
+            <%= t('stats.index.total_downloads') %>
+            <span class="gem__downloads"><%= number_with_delimiter(@rubygem.downloads) %></span>
+          </h2>
+          <h2 class="gem__downloads__heading t-text--s">
+            <%= t('.downloads_for_this_version') %>
+            <span class="gem__downloads"><%= number_with_delimiter(@latest_version.downloads_count) %></span>
+          </h2>
+          <% if @versions.present? %>
+            <% if show_all_versions_link?(@rubygem) %>
+              <%= link_to t('.show_all_versions', :count => @rubygem.versions.count), rubygem_versions_url(@rubygem), :class => "gem__see-all-versions t-link--gray t-link--has-arrow" %>
             <% end %>
-          </div>
-        <% end %>
-      <% end %>
-
-      <h2 class="gem__ruby-version__heading t-list__heading">
-        Required Ruby Version:
-        <i class="gem__ruby-version">
-          <% if @latest_version.ruby_version %>
-            <%= @latest_version.ruby_version %>
-          <% else %>
-            None
           <% end %>
-        </i>
-      </h2>
+        </div>
+      <% end %>
 
       <% if @latest_version.indexed %>
         <h2 class="gem__ruby-version__heading t-list__heading">
-          <%= t '.licenses_header' %>:
-          <span class="gem__ruby-version">
-            <p><%= formatted_licenses @latest_version.licenses %></p>
-          </span>
-        </h2>
-
-        <h2 class="gem__ruby-version__heading t-list__heading">
           <%= t '.bundler_header' %>:
           <div class="gem__code-wrap">
-            <input type="text" class="gem__code" value="<%= @latest_version.to_bundler %>" readonly="readonly">
-            <span class="gem__code__icon" id="js-gem__code--gemfile" data-clipboard-text="<%= @latest_version.to_bundler %>">=</span>
-            <span class="gem__code__tooltip--copy">Copy to clipboard</span>
-            <span class="gem__code__tooltip--copied">Copied!</span>
+            <input type="text" class="gem__code" id="gemfile_text" value="<%= @latest_version.to_bundler %>" readonly="readonly">
+            <span class="gem__code__icon" id="js-gem__code--gemfile" data-clipboard-target="#gemfile_text">=</span>
+            <span class="gem__code__tooltip--copy"><%= t('.copy_to_clipboard') %></span>
+            <span class="gem__code__tooltip--copied"><%= t('.copied') %></span>
           </div>
         </h2>
         <h2 class="gem__ruby-version__heading t-list__heading">
           <%= t '.install' %>:
           <div class="gem__code-wrap">
-            <input type="text" class="gem__code" value="<%= @latest_version.to_install %>" readonly="readonly">
-            <span class="gem__code__icon" id="js-gem__code--install" data-clipboard-text="<%= @latest_version.to_install %>">=</span>
-            <span class="gem__code__tooltip--copy">Copy to clipboard</span>
-            <span class="gem__code__tooltip--copied">Copied!</span>
+            <input type="text" class="gem__code" id="install_text" value="<%= @latest_version.to_install %>" readonly="readonly">
+            <span class="gem__code__icon" id="js-gem__code--install" data-clipboard-target="#install_text">=</span>
           </div>
         </h2>
+        <h2 class="gem__ruby-version__heading t-list__heading">
+          <%= pluralized_licenses_header @latest_version %>:
+          <span class="gem__ruby-version">
+            <p><%= formatted_licenses @latest_version.licenses %></p>
+          </span>
+        </h2>
       <% end %>
+
+      <h2 class="gem__ruby-version__heading t-list__heading">
+        <%= t('.required_ruby_version') %>:
+        <i class="gem__ruby-version">
+          <% if @latest_version.ruby_version %>
+            <%= @latest_version.ruby_version %>
+          <% else %>
+            <%= t('none') %>
+          <% end %>
+        </i>
+      </h2>
 
       <h3 class="t-list__heading"><%= t '.links.header' %>:</h3>
       <div class="t-list__items">
@@ -144,42 +146,21 @@
 
         <% if @latest_version.indexed %>
           <% if @rubygem.linkset.present? %>
-            <%= link_to_page t('.links.home'), @rubygem.linkset.home %>
-            <%= link_to_page t('.links.code'), @rubygem.linkset.code %>
-            <%= link_to_page t('.links.docs'), @rubygem.linkset.docs %>
-            <%= link_to_page t('.links.wiki'), @rubygem.linkset.wiki %>
-            <%= link_to_page t('.links.mail'), @rubygem.linkset.mail %>
-            <%= link_to_page t('.links.bugs'), @rubygem.linkset.bugs %>
+            <%- Linkset::LINKS.each do |link| %>
+              <%= link_to_page t("rubygems.show.links.#{link}"), @rubygem.linkset.public_send(link) %>
+            <%- end %>
           <% end %>
+
+          <%= download_link(@latest_version) %>
         <% end %>
 
-        <%= download_link(@latest_version) %>
         <%= documentation_link(@latest_version, @rubygem.linkset) %>
         <%= badge_link(@rubygem) %>
         <%= subscribe_link(@rubygem) if @latest_version.indexed %>
         <%= unsubscribe_link(@rubygem) %>
         <%= atom_link(@rubygem) %>
+        <%= report_abuse_link(@rubygem) %>
       </div>
     </div>
   </div>
-<% end %>
-
-<% content_for :javascript do %>
-  <script>
-    var gemfileCopyButton = document.getElementById("js-gem__code--gemfile");
-    var installCopyButton = document.getElementById("js-gem__code--install");
-
-    var client   = new ZeroClipboard( gemfileCopyButton );
-    var client2  = new ZeroClipboard( installCopyButton );
-
-    client.on("error", function() {
-      client.destroy();
-      gemfileCopyButton.style.display = "none";
-    });
-
-    client2.on("error", function() {
-      client2.destroy();
-      installCopyButton.style.display = "none";
-    });
-  </script>
 <% end %>

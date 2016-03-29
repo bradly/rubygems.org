@@ -1,14 +1,14 @@
 class RubygemsController < ApplicationController
-  before_action :redirect_to_root, :only => [:edit, :update], :unless => :signed_in?
-  before_action :find_rubygem, :only => [:edit, :update, :show]
-  before_action :load_gem, :only => [:edit, :update]
+  before_action :redirect_to_root, only: [:edit, :update], unless: :signed_in?
+  before_action :find_rubygem, only: [:edit, :update, :show]
+  before_action :load_gem, only: [:edit, :update]
   before_action :set_page, only: :index
 
   def index
     respond_to do |format|
       format.html do
         @letter = Rubygem.letterize(params[:letter])
-        @gems   = Rubygem.letter(@letter).paginate(page: @page)
+        @gems   = Rubygem.includes(:gem_download).letter(@letter).by_downloads.paginate(page: @page)
       end
       format.atom do
         @versions = Version.published(20)
@@ -37,7 +37,7 @@ class RubygemsController < ApplicationController
   protected
 
   def load_gem
-    if !@rubygem.owned_by?(current_user)
+    unless @rubygem.owned_by?(current_user)
       flash[:warning] = "You do not have permission to edit this gem."
       redirect_to root_url
     end
@@ -46,6 +46,7 @@ class RubygemsController < ApplicationController
   end
 
   private
+
   def params_linkset
     params.require(:linkset).permit(:code, :docs, :wiki, :mail, :bugs)
   end

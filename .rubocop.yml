@@ -1,0 +1,61 @@
+inherit_from: .rubocop_todo.yml
+
+AllCops:
+  Exclude:
+    - config/initializers/forbidden_yaml.rb
+    - !ruby/regexp /(vendor|bundle|bin|db)\/.*/
+  DisplayCopNames: true
+  DisplayStyleGuide: true
+  TargetRubyVersion: 2.2
+
+Rails:
+  Enabled: true
+
+Metrics/AbcSize:
+  Max: 42 # TODO: Lower to 15
+
+Metrics/ClassLength:
+  Max: 350 # TODO: Lower to 100
+  Exclude:
+    - test/**/*.rb
+
+Metrics/CyclomaticComplexity:
+  Max: 9 # TODO: Lower to 6
+
+Metrics/LineLength:
+  Max: 150
+
+Metrics/MethodLength:
+  Max: 30 # TODO: Lower to 10
+
+Metrics/ModuleLength:
+  Exclude:
+    - lib/patterns.rb
+
+Metrics/PerceivedComplexity:
+  Max: 10 # TODO: Lower to 7
+
+Performance/RedundantMerge:
+  Enabled: false
+
+Style/AlignParameters:
+  EnforcedStyle: with_fixed_indentation
+
+Style/AndOr:
+  Exclude:
+    - app/controllers/internal/ping_controller.rb
+
+Style/ClassAndModuleChildren:
+  EnforcedStyle: compact
+
+Style/Documentation:
+  Enabled: false
+
+Style/FrozenStringLiteralComment:
+  Enabled: false
+
+Style/MultilineMethodCallIndentation:
+  EnforcedStyle: indented
+
+Style/MultilineOperationIndentation:
+  EnforcedStyle: indented

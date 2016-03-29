@@ -3,12 +3,12 @@ class Dependency < ActiveRecord::Base
   belongs_to :version
 
   before_validation :use_gem_dependency,
-                    :use_existing_rubygem,
-                    :parse_gem_dependency
-  after_create      :push_on_to_list
+    :use_existing_rubygem,
+    :parse_gem_dependency
+  after_create :push_on_to_list
 
-  validates :requirements, :presence => true
-  validates :scope,        :inclusion => {:in => %w(development runtime)}
+  validates :requirements, presence: true
+  validates :scope,        inclusion: { in: %w(development runtime) }
 
   attr_accessor :gem_dependency
 
@@ -22,43 +22,15 @@ class Dependency < ActiveRecord::Base
   end
 
   def self.development
-    where(:scope => 'development')
+    where(scope: 'development')
   end
 
   def self.runtime
-    where(:scope => 'runtime')
+    where(scope: 'runtime')
   end
 
   def self.runtime_key(full_name)
     "rd:#{full_name}"
-  end
-
-  # rails,rack,bundler
-  def self.for(gem_list)
-    versions = Redis.current.pipelined do
-      gem_list.each do |rubygem_name|
-        Redis.current.lrange(Rubygem.versions_key(rubygem_name), 0, -1)
-      end
-    end || []
-    versions.flatten!
-
-    return [] if versions.blank?
-
-    data = Redis.current.pipelined do
-      versions.each do |version|
-        Redis.current.hvals(Version.info_key(version))
-        Redis.current.lrange(Dependency.runtime_key(version), 0, -1)
-      end
-    end
-
-    data.in_groups_of(2).map do |(name, number, platform), deps|
-      {
-        :name         => name,
-        :number       => number,
-        :platform     => platform,
-        :dependencies => deps.map { |dep| dep.split(" ", 2) }
-      }
-    end
   end
 
   def name
@@ -72,12 +44,12 @@ class Dependency < ActiveRecord::Base
     }
   end
 
-  def as_json(options={})
+  def as_json(*)
     payload
   end
 
-  def to_xml(options={})
-    payload.to_xml(options.merge(:root => 'dependency'))
+  def to_xml(options = {})
+    payload.to_xml(options.merge(root: 'dependency'))
   end
 
   def to_yaml(*args)
@@ -85,7 +57,9 @@ class Dependency < ActiveRecord::Base
   end
 
   def encode_with(coder)
-    coder.tag, coder.implicit, coder.map = nil, true, payload
+    coder.tag = nil
+    coder.implicit = true
+    coder.map = payload
   end
 
   def to_s
@@ -105,7 +79,7 @@ class Dependency < ActiveRecord::Base
   private
 
   def use_gem_dependency
-    return if self.rubygem
+    return if rubygem
 
     if gem_dependency.class != Gem::Dependency
       errors.add :rubygem, "Please use Gem::Dependency to specify dependencies."
@@ -121,17 +95,17 @@ class Dependency < ActiveRecord::Base
   end
 
   def use_existing_rubygem
-    return if self.rubygem
+    return if rubygem
 
-    unless self.rubygem = Rubygem.find_by_name(gem_dependency.name)
-      self.unresolved_name = gem_dependency.name
-    end
+    self.rubygem = Rubygem.find_by_name(gem_dependency.name)
+
+    self.unresolved_name = gem_dependency.name unless rubygem
 
     true
   end
 
   def parse_gem_dependency
-    return if self.requirements
+    return if requirements
 
     reqs = gem_dependency.requirements_list.join(', ')
     self.requirements = clean_requirements(reqs)
@@ -140,6 +114,6 @@ class Dependency < ActiveRecord::Base
   end
 
   def push_on_to_list
-    Redis.current.lpush(Dependency.runtime_key(self.version.full_name), self.to_s) if self.scope == 'runtime'
+    Redis.current.lpush(Dependency.runtime_key(version.full_name), to_s) if scope == 'runtime'
   end
 end

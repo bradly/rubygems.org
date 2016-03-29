@@ -1,24 +1,39 @@
 language: ruby
+cache:
+  bundler: true
+  directories:
+    - reports
 
 rvm:
-  - 2.1.5
-  - 2.2
+  - 2.2.3
+  - 2.3.0
   - ruby-head
 
 services:
   - redis-server
+  - elasticsearch
 
 sudo: false
 
 bundler_args: --jobs=3 --retry=3 --without development
 
+git:
+  submodules: false
+
 before_install:
+  - git submodule update --init --depth 1
   - sh -c "if [ '$RUBYGEMS_VERSION' != 'latest' ]; then gem update --system $RUBYGEMS_VERSION; fi"
   - gem --version
+  - script/install_toxiproxy.sh
 
 before_script:
   - cp config/database.yml.example config/database.yml
   - bundle exec rake db:create db:migrate db:test:prepare
+
+script:
+  - bundle exec rake
+  - bundle exec rake rubocop
+  - script/brakeman
 
 env:
   - RUBYGEMS_VERSION=2.4.5
@@ -27,6 +42,5 @@ env:
 matrix:
   allow_failures:
     - env: "RUBYGEMS_VERSION=latest"
-    - rvm: 2.2
     - rvm: ruby-head
   fast_finish: true

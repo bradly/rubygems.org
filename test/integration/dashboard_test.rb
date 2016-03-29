@@ -15,7 +15,7 @@ class DashboardTest < ActionDispatch::IntegrationTest
     get dashboard_path
 
     assert page.has_content? "sandworm"
-    assert ! page.has_content?("arrakis")
+    refute page.has_content?("arrakis")
   end
 
   test "gems I have subscribed to show on my dashboard" do
@@ -25,7 +25,7 @@ class DashboardTest < ActionDispatch::IntegrationTest
     get dashboard_path
 
     assert page.has_content? "sandworm"
-    assert ! page.has_content?("arrakis")
+    refute page.has_content?("arrakis")
   end
 
   test "dashboard with a non valid format" do
@@ -42,5 +42,11 @@ class DashboardTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_equal :atom, response.content_type.symbol
     assert page.has_content? "sandworm"
+  end
+
+  test "shows announcements on dashboard" do
+    Announcement.create!(body: "hello w.")
+    get dashboard_path
+    assert page.has_content?('hello w.')
   end
 end

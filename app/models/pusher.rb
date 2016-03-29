@@ -4,11 +4,12 @@ class Pusher
   attr_reader :user, :spec, :message, :code, :rubygem, :body, :version, :version_id, :size
   attr_accessor :bundler_api_url
 
-  def initialize(user, body, host_with_port=nil)
+  def initialize(user, body, protocol = nil, host_with_port = nil)
     @user = user
     @body = StringIO.new(body.read)
     @size = @body.size
     @indexer = Indexer.new
+    @protocol = protocol
     @host_with_port = host_with_port
     @bundler_token = ENV['BUNDLER_TOKEN'] || "tokenmeaway"
     @bundler_api_url = ENV['BUNDLER_API_URL']
@@ -20,69 +21,55 @@ class Pusher
 
   def authorize
     rubygem.pushable? ||
-    rubygem.owned_by?(user) ||
-    notify("You do not have permission to push to this gem.", 403)
+      rubygem.owned_by?(user) ||
+      notify("You do not have permission to push to this gem.", 403)
   end
 
   def save
     # Restructured so that if we fail to write the gem (ie, s3 is down)
     # can clean things up well.
 
-    begin
-      @indexer.write_gem @body, @spec
-    rescue StandardError => e
-      @version.destroy
-      notify("There was a problem saving your gem: #{e}", 403)
+    @indexer.write_gem @body, @spec
+  rescue StandardError => e
+    @version.destroy
+    Honeybadger.notify(e)
+    notify("There was a problem saving your gem. Please try again.", 500)
+  else
+    if update
+      after_write
+      notify("Successfully registered gem: #{version.to_title}", 200)
     else
-      if update
-        after_write
-        notify("Successfully registered gem: #{version.to_title}", 200)
-      else
-        notify("There was a problem saving your gem: #{rubygem.all_errors(version)}", 403)
-      end
+      notify("There was a problem saving your gem: #{rubygem.all_errors(version)}", 403)
     end
   end
 
   def pull_spec
-    # After we upgrade to rubygems 2.3.0+, we can replace this with `Gem::Package.new(body).load_spec`
-    # as https://github.com/rubygems/rubygems/pull/716 is merged for those versions.
-    gem_tar = Gem::Package::TarReader.new body
-    gem_tar.each do |entry|
-      if @spec = load_spec(entry)
-        break
-      end
-    end
-
-    raise Gem::Package::FormatError.new('package metadata is missing') unless @spec
-    @spec
-  rescue Psych::Exception => e
-    Rails.logger.info "Attempted YAML metadata exploit: #{e}"
-    notify("RubyGems.org cannot process this gem.\nThe metadata is invalid.\n#{e}", 422)
-  rescue Gem::Package::FormatError
-    notify("RubyGems.org cannot process this gem.\nPlease try rebuilding it" +
-           " and installing it locally to make sure it's valid.", 422)
-  rescue Exception => e
-    notify("RubyGems.org cannot process this gem.\nPlease try rebuilding it" +
-           " and installing it locally to make sure it's valid.\n" +
-           "Error:\n#{e.message}}", 422)
+    @spec = Gem::Package.new(body).spec
+  rescue StandardError => error
+    notify <<-MSG.strip_heredoc, 422
+      RubyGems.org cannot process this gem.
+      Please try rebuilding it and installing it locally to make sure it's valid.
+      Error:
+      #{error.message}
+    MSG
   end
 
   def find
     name = spec.name.to_s
 
-    @rubygem = Rubygem.name_is(name).first || Rubygem.new(:name => name)
+    @rubygem = Rubygem.name_is(name).first || Rubygem.new(name: name)
 
     unless @rubygem.new_record?
       if @rubygem.find_version_from_spec(spec)
-        notify("Repushing of gem versions is not allowed.\n" +
+        notify("Repushing of gem versions is not allowed.\n" \
                "Please use `gem yank` to remove bad gem releases.", 409)
 
         return false
       end
 
-      if @rubygem.name != name and @rubygem.indexed_versions?
-        return notify("Unable to change case of gem name with indexed versions\n" +
-                      "Please yank all versions first", 409)
+      if @rubygem.name != name && @rubygem.indexed_versions?
+        return notify("Unable to change case of gem name with indexed versions\n" \
+                      "Please delete all versions first with `gem yank`.", 409)
       end
     end
 
@@ -101,28 +88,30 @@ class Pusher
 
   # Overridden so we don't get megabytes of the raw data printing out
   def inspect
-    attrs = [:@rubygem, :@user, :@message, :@code].map { |attr| "#{attr}=#{instance_variable_get(attr) || 'nil'}" }
+    attrs = [:@rubygem, :@user, :@message, :@code].map do |attr|
+      "#{attr}=#{instance_variable_get(attr).inspect}"
+    end
     "<Pusher #{attrs.join(' ')}>"
   end
 
-  def update_remote_bundler_api(to=RestClient)
+  def update_remote_bundler_api(to = RestClient)
     return unless @bundler_api_url
 
     json = {
       "name"           => spec.name,
       "version"        => spec.version.to_s,
       "platform"       => spec.platform.to_s,
-      "prerelease"     => !!spec.version.prerelease?,
+      "prerelease"     => !!spec.version.prerelease?, # rubocop:disable Style/DoubleNegation
       "rubygems_token" => @bundler_token
     }.to_json
 
     begin
       timeout(5) do
         to.post @bundler_api_url,
-                json,
-                :timeout        => 5,
-                :open_timeout   => 5,
-                'Content-Type'  => 'application/json'
+          json,
+          :timeout        => 5,
+          :open_timeout   => 5,
+          'Content-Type'  => 'application/json'
       end
     rescue StandardError, Interrupt
       false
@@ -131,29 +120,12 @@ class Pusher
 
   private
 
-  def load_spec entry
-    case entry.full_name
-    when 'metadata'
-      return Gem::Specification.from_yaml entry.read
-    when 'metadata.gz'
-      args = [entry]
-      args << { :external_encoding => Encoding::UTF_8 } if
-        Object.const_defined?(:Encoding) &&
-          Zlib::GzipReader.method(:wrap).arity != 1
-
-      Zlib::GzipReader.wrap(*args) do |gzio|
-        return Gem::Specification.from_yaml gzio.read
-      end
-    end
-    nil
-  end
-
   def after_write
     @version_id = version.id
-    Delayed::Job.enqueue Indexer.new, :priority => PRIORITIES[:push]
+    Delayed::Job.enqueue Indexer.new, priority: PRIORITIES[:push]
+    rubygem.delay.index_document
     enqueue_web_hook_jobs
     update_remote_bundler_api
-    Librato.increment 'push.success'
     StatsD.increment 'push.success'
   end
 
@@ -173,14 +145,10 @@ class Pusher
     false
   end
 
-  def self.server_path(*more)
-    File.expand_path(File.join(File.dirname(__FILE__), '..', '..', 'server', *more))
-  end
-
   def enqueue_web_hook_jobs
     jobs = rubygem.web_hooks + WebHook.global
     jobs.each do |job|
-      job.fire(@host_with_port, rubygem, version)
+      job.fire(@protocol, @host_with_port, rubygem, version)
     end
   end
 end

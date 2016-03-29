@@ -2,17 +2,17 @@ require 'test_helper'
 
 class Api::V1::RubygemsControllerTest < ActionController::TestCase
   should "route old paths to new controller" do
-    get_route = {:controller => 'api/v1/rubygems', :action => 'show', :id => "rails", :format => "json"}
+    get_route = { controller: 'api/v1/rubygems', action: 'show', id: "rails", format: "json" }
     assert_recognizes(get_route, '/api/v1/gems/rails.json')
 
-    post_route = {:controller => 'api/v1/rubygems', :action => 'create'}
-    assert_recognizes(post_route, :path => '/api/v1/gems', :method => :post)
+    post_route = { controller: 'api/v1/rubygems', action: 'create' }
+    assert_recognizes(post_route, path: '/api/v1/gems', method: :post)
   end
 
-  def self.should_respond_to_show(format, &block)
+  def self.should_respond_to_show
     should respond_with :success
     should "return a hash" do
-      response = yield(@response.body)
+      response = yield(@response.body) if block_given?
       assert_not_nil response
       assert_kind_of Hash, response
     end
@@ -22,31 +22,31 @@ class Api::V1::RubygemsControllerTest < ActionController::TestCase
     context "with #{format.to_s.upcase} for a hosted gem" do
       setup do
         @rubygem = create(:rubygem)
-        create(:version, :rubygem => @rubygem)
-        get :show, :id => @rubygem.to_param, :format => format
+        create(:version, rubygem: @rubygem)
+        get :show, id: @rubygem.to_param, format: format
       end
 
-      should_respond_to_show(format, &block)
+      should_respond_to_show(&block)
     end
 
     context "with #{format.to_s.upcase} for a hosted gem with a period in its name" do
       setup do
-        @rubygem = create(:rubygem, :name => 'foo.rb')
-        create(:version, :rubygem => @rubygem)
-        get :show, :id => @rubygem.to_param, :format => format
+        @rubygem = create(:rubygem, name: 'foo.rb')
+        create(:version, rubygem: @rubygem)
+        get :show, id: @rubygem.to_param, format: format
       end
 
-      should_respond_to_show(format, &block)
+      should_respond_to_show(&block)
     end
 
     context "with #{format.to_s.upcase} for a gem that doesn't match the slug" do
       setup do
-        @rubygem = create(:rubygem, :name => "ZenTest", :slug => "zentest")
-        create(:version, :rubygem => @rubygem)
-        get :show, :id => "ZenTest", :format => format
+        @rubygem = create(:rubygem, name: "ZenTest", slug: "zentest")
+        create(:version, rubygem: @rubygem)
+        get :show, id: "ZenTest", format: format
       end
 
-      should_respond_to_show(format, &block)
+      should_respond_to_show(&block)
     end
   end
 
@@ -58,11 +58,11 @@ class Api::V1::RubygemsControllerTest < ActionController::TestCase
 
     context "On GET to show" do
       should_respond_to(:json) do |body|
-        MultiJson.load body
+        JSON.load body
       end
 
       should_respond_to(:yaml) do |body|
-       YAML.load body
+        YAML.load body
       end
     end
 
@@ -70,38 +70,59 @@ class Api::V1::RubygemsControllerTest < ActionController::TestCase
       setup do
         @rubygem = create(:rubygem)
         assert @rubygem.versions.count.zero?
-        get :show, :id => @rubygem.to_param, :format => "json"
+        get :show, id: @rubygem.to_param, format: "json"
       end
 
       should respond_with :not_found
-      should "say not be found" do
-        assert_match /does not exist/, @response.body
+      should "say gem could not be found" do
+        assert_equal "This rubygem could not be found.", @response.body
       end
     end
 
     context "On GET to show for a gem that doesn't exist" do
       setup do
         @name = generate(:name)
-        assert ! Rubygem.exists?(:name => @name)
-        get :show, :id => @name, :format => "json"
+        refute Rubygem.exists?(name: @name)
+        get :show, id: @name, format: "json"
       end
 
       should respond_with :not_found
       should "say the rubygem was not found" do
-        assert_match /not be found/, @response.body
+        assert_match(/not be found/, @response.body)
       end
     end
 
     context "On GET to show for a gem that's yanked" do
       setup do
         @rubygem = create(:rubygem)
-        create(:version, :rubygem => @rubygem, :number => "1.0.0", :indexed => false)
-        get :show, :id => @rubygem.to_param, :format => "json"
+        create(:version, rubygem: @rubygem, number: "1.0.0", indexed: false)
+        get :show, id: @rubygem.to_param, format: "json"
       end
 
       should respond_with :not_found
-      should "say the rubygem was not found" do
-        assert_match /does not exist/, @response.body
+      should "say gem could not be found" do
+        assert_equal "This rubygem could not be found.", @response.body
+      end
+    end
+
+    context "On GET to show for a gem with dependencies that have missing rubygem" do
+      setup do
+        @rubygem = create(:rubygem)
+        @version = create(:version, rubygem: @rubygem)
+
+        @runtime_dependency = create(:dependency, :runtime, version: @version)
+        @runtime_dependency.rubygem.update_column(:name, 'foo')
+        @missing_dependency = create(:dependency, :runtime, version: @version)
+        @missing_dependency.rubygem.update_column(:name, 'missing')
+        @missing_dependency.update_column(:rubygem_id, nil)
+
+        get :show, id: @rubygem.to_param, format: "json"
+      end
+
+      should respond_with :success
+      should "show only dependencies that have rubygem" do
+        assert_match(/foo/, @response.body)
+        assert_no_match(/missing/, @response.body)
       end
     end
   end
@@ -109,18 +130,18 @@ class Api::V1::RubygemsControllerTest < ActionController::TestCase
   def self.should_respond_to(format)
     context "with #{format.to_s.upcase} for a list of gems" do
       setup do
-        @mygems = [ create(:rubygem, :name => "SomeGem"), create(:rubygem, :name => "AnotherGem") ]
+        @mygems = [create(:rubygem, name: "SomeGem"), create(:rubygem, name: "AnotherGem")]
         @mygems.each do |rubygem|
-          create(:version, :rubygem => rubygem)
-          create(:ownership, :user => @user, :rubygem => rubygem)
+          create(:version, rubygem: rubygem)
+          create(:ownership, user: @user, rubygem: rubygem)
         end
 
         @other_user = create(:user)
-        @not_my_rubygem = create(:rubygem, :name => "NotMyGem")
-        create(:version, :rubygem => @not_my_rubygem)
-        create(:ownership, :user => @other_user, :rubygem => @not_my_rubygem)
+        @not_my_rubygem = create(:rubygem, name: "NotMyGem")
+        create(:version, rubygem: @not_my_rubygem)
+        create(:ownership, user: @other_user, rubygem: @not_my_rubygem)
 
-        get :index, :format => format
+        get :index, format: format
       end
 
       should respond_with :success
@@ -129,7 +150,7 @@ class Api::V1::RubygemsControllerTest < ActionController::TestCase
       end
       should "only return my gems" do
         gem_names = yield(@response.body).map { |rubygem| rubygem['name'] }.sort
-        assert_equal ["AnotherGem", "SomeGem"], gem_names
+        assert_equal %w(AnotherGem SomeGem), gem_names
       end
     end
   end
@@ -142,7 +163,7 @@ class Api::V1::RubygemsControllerTest < ActionController::TestCase
 
     context "On GET to index" do
       should_respond_to :json do |body|
-        MultiJson.load body
+        JSON.load body
       end
 
       should_respond_to :yaml do |body|
@@ -165,11 +186,19 @@ class Api::V1::RubygemsControllerTest < ActionController::TestCase
 
     context "On POST to create for existing gem" do
       setup do
-        rubygem = create(:rubygem, :name => "test")
-        create(:ownership, :rubygem => rubygem, :user => @user)
-        create(:version, :rubygem => rubygem, :number => "0.0.0", :updated_at => 1.year.ago, :created_at => 1.year.ago)
+        rubygem = create(:rubygem, name: "test")
+        create(:ownership,
+          rubygem: rubygem,
+          user: @user)
+        create(:version,
+          rubygem: rubygem,
+          number: "0.0.0",
+          updated_at: 1.year.ago,
+          created_at: 1.year.ago)
         @request.env["RAW_POST_DATA"] = gem_file("test-1.0.0.gem").read
-        post :create
+        assert_difference 'Delayed::Job.count', 2 do
+          post :create
+        end
       end
       should respond_with :success
       should "register new version" do
@@ -182,19 +211,18 @@ class Api::V1::RubygemsControllerTest < ActionController::TestCase
 
     context "On POST to create for a repush" do
       setup do
-        rubygem = create(:rubygem,
-                          :name       => "test")
-        create(:ownership, :rubygem => rubygem, :user => @user)
+        rubygem = create(:rubygem, name: "test")
+        create(:ownership, rubygem: rubygem, user: @user)
 
         @date = 1.year.ago
         @version = create(:version,
-                           :rubygem    => rubygem,
-                           :number     => "0.0.0",
-                           :updated_at => @date,
-                           :created_at => @date,
-                           :summary    => "Freewill",
-                           :authors    => ["Geddy Lee"],
-                           :built_at   => @date)
+          rubygem: rubygem,
+          number: "0.0.0",
+          updated_at: @date,
+          created_at: @date,
+          summary: "Freewill",
+          authors: ["Geddy Lee"],
+          built_at: @date)
 
         @request.env["RAW_POST_DATA"] = gem_file.read
         post :create
@@ -216,7 +244,7 @@ class Api::V1::RubygemsControllerTest < ActionController::TestCase
       should respond_with :unprocessable_entity
       should "not register gem" do
         assert Rubygem.count.zero?
-        assert_match /RubyGems\.org cannot process this gem/, @response.body
+        assert_match(/RubyGems\.org cannot process this gem/, @response.body)
       end
     end
 
@@ -237,163 +265,61 @@ class Api::V1::RubygemsControllerTest < ActionController::TestCase
       end
     end
 
-    context "for a gem SomeGem with a version 0.1.0" do
+    context "On POST to create with reserved gem name" do
       setup do
-        @rubygem  = create(:rubygem, :name => "SomeGem")
-        @v1       = create(:version, :rubygem => @rubygem, :number => "0.1.0", :platform => "ruby")
-        create(:ownership, :user => @user, :rubygem => @rubygem)
+        @request.env["RAW_POST_DATA"] = gem_file("openssl-0.1.0.gem").read
+        post :create
       end
-
-      context "ON DELETE to yank for existing gem version" do
-        setup do
-          delete :yank, :gem_name => @rubygem.to_param, :version => @v1.number
-        end
-        should respond_with :success
-        should "keep the gem, deindex, keep owner" do
-          assert_equal 1, @rubygem.versions.count
-          assert @rubygem.versions.indexed.count.zero?
-        end
-      end
-
-      context "and a version 0.1.1" do
-        setup do
-          @v2 = create(:version, :rubygem => @rubygem, :number => "0.1.1", :platform => "ruby")
-        end
-
-        context "ON DELETE to yank for version 0.1.1" do
-          setup do
-            delete :yank, :gem_name => @rubygem.to_param, :version => @v2.number
-          end
-          should respond_with :success
-          should "keep the gem, deindex it, and keep the owners" do
-            assert_equal 2, @rubygem.versions.count
-            assert_equal 1, @rubygem.versions.indexed.count
-            assert_equal 1, @rubygem.ownerships.count
-          end
-        end
-      end
-
-      context "and a version 0.1.1 and platform x86-darwin-10" do
-        setup do
-          @v2 = create(:version, :rubygem => @rubygem, :number => "0.1.1", :platform => "x86-darwin-10")
-        end
-
-        context "ON DELETE to yank for version 0.1.1 and x86-darwin-10" do
-          setup do
-            delete :yank, :gem_name => @rubygem.to_param, :version => @v2.number, :platform => @v2.platform
-          end
-          should respond_with :success
-          should "keep the gem, deindex it, and keep the owners" do
-            assert_equal 2, @rubygem.versions.count
-            assert_equal 1, @rubygem.versions.indexed.count
-            assert_equal 1, @rubygem.ownerships.count
-          end
-          should "show platform in response" do
-            assert_equal "Successfully yanked gem: SomeGem (0.1.1-x86-darwin-10)", @response.body
-          end
-        end
-      end
-
-      context "ON DELETE to yank for existing gem with invalid version" do
-        setup do
-          delete :yank, :gem_name => @rubygem.to_param, :version => "0.2.0"
-        end
-        should respond_with :not_found
-        should "not modify any versions" do
-          assert_equal 1, @rubygem.versions.count
-          assert_equal 1, @rubygem.versions.indexed.count
-        end
-      end
-
-      context "ON DELETE to yank for someone else's gem" do
-        setup do
-          @other_user = create(:user)
-          @request.env["HTTP_AUTHORIZATION"] = @other_user.api_key
-          delete :yank, :gem_name => @rubygem.to_param, :version => '0.1.0'
-        end
-        should respond_with :forbidden
-      end
-
-      context "ON DELETE to yank for an already yanked gem" do
-        setup do
-          @v1.yank!
-          delete :yank, :gem_name => @rubygem.to_param, :version => '0.1.0'
-        end
-        should respond_with :unprocessable_entity
+      should respond_with 403
+      should "not register gem" do
+        assert Rubygem.count.zero?
+        assert_match(/There was a problem saving your gem: Name 'openssl' is a reserved gem name./, @response.body)
       end
     end
 
-    context "for a gem SomeGem with a yanked version 0.1.0 and unyanked version 0.1.1" do
+    context "with elasticsearch down" do
       setup do
-        @rubygem  = create(:rubygem, :name => "SomeGem")
-        @v1       = create(:version, :rubygem => @rubygem, :number => "0.1.0", :platform => "ruby", :indexed => false)
-        @v2       = create(:version, :rubygem => @rubygem, :number => "0.1.1", :platform => "ruby")
-        @v3       = create(:version, :rubygem => @rubygem, :number => "0.1.2", :platform => "x86-darwin-10", :indexed => false)
-        create(:ownership, :user => @user, :rubygem => @rubygem)
+        rubygem = create(:rubygem, name: "test")
+        create(:ownership,
+          rubygem: rubygem,
+          user: @user)
+        create(:version,
+          rubygem: rubygem,
+          number: "0.0.0",
+          updated_at: 1.year.ago,
+          created_at: 1.year.ago)
       end
-
-      context "ON PUT to unyank for version 0.1.0" do
-        setup do
-          put :unyank, :gem_name => @rubygem.to_param, :version => @v1.number
+      should "POST to create for existing gem should not fail" do
+        requires_toxiproxy
+        Toxiproxy[:elasticsearch].down do
+          @request.env["RAW_POST_DATA"] = gem_file("test-1.0.0.gem").read
+          post :create
+          assert_response :success
+          assert_equal @user, Rubygem.last.ownerships.first.user
+          assert_equal 1, Rubygem.last.ownerships.count
+          assert_equal 2, Rubygem.last.versions.count
+          assert_equal "Successfully registered gem: test (1.0.0)", @response.body
         end
-        should respond_with :success
-        #should change("the rubygem's indexed version count", :by => 1) { @rubygem.versions.indexed.count }
-        should "re-index 0.1.0" do
-          assert @v1.reload.indexed?
-        end
-      end
-
-      context "ON PUT to unyank for version 0.1.2 and platform x86-darwin-10" do
-        setup do
-          put :unyank, :gem_name => @rubygem.to_param, :version => @v3.number, :platform => @v3.platform
-        end
-        should respond_with :success
-        #should change("the rubygem's indexed version count", :by => 1) { @rubygem.versions.indexed.count }
-        should "re-index 0.1.2" do
-          assert @v3.reload.indexed?
-        end
-      end
-
-
-      context "ON PUT to unyank for version 0.1.1" do
-        setup do
-          put :unyank, :gem_name => @rubygem.to_param, :version => @v2.number
-        end
-        should respond_with :unprocessable_entity
       end
     end
-  end
-
-  def should_return_latest_gems(gems)
-    assert_equal 2, gems.length
-    gems.each {|g| assert g.is_a?(Hash) }
-    assert_equal @rubygem_2.attributes['name'], gems[0]['name']
-    assert_equal @rubygem_3.attributes['name'], gems[1]['name']
-  end
-
-  def should_return_just_updated_gems(gems)
-    assert_equal 3, gems.length
-    gems.each {|g| assert g.is_a?(Hash) }
-    assert_equal @rubygem_1.attributes['name'], gems[0]['name']
-    assert_equal @rubygem_2.attributes['name'], gems[1]['name']
-    assert_equal @rubygem_3.attributes['name'], gems[2]['name']
   end
 
   context "No signed in-user" do
     context "On GET to index with JSON for a list of gems" do
       setup do
-        get :index, :format => "json"
+        get :index, format: "json"
       end
       should "deny access" do
         assert_response 401
-        assert_match "Access Denied. Please sign up for an account at http://rubygems.org", @response.body
+        assert_equal "Access Denied. Please sign up for an account at https://rubygems.org",
+          @response.body
       end
     end
 
-    %w[json xml yaml].each do |format|
+    %w(json xml yaml).each do |format|
       context "on GET to show for an unknown gem with #{format} format" do
         setup do
-          get :show, :id => "rials", :format => format
+          get :show, id: "rials", format: format
         end
 
         should "return a 404" do
@@ -414,28 +340,71 @@ class Api::V1::RubygemsControllerTest < ActionController::TestCase
       @gem_two = create(:rubygem)
       @gem_three = create(:rubygem)
       @gem_four = create(:rubygem)
-      @version_one_latest  = create(:version, :rubygem => @gem_one, :number => '0.2')
-      @version_one_earlier = create(:version, :rubygem => @gem_one, :number => '0.1')
-      @version_two_latest  = create(:version, :rubygem => @gem_two, :number => '1.0')
-      @version_two_earlier = create(:version, :rubygem => @gem_two, :number => '0.5')
-      @version_three = create(:version, :rubygem => @gem_three, :number => '1.7')
-      @version_four = create(:version, :rubygem => @gem_four, :number => '3.9')
+      @gem_five = create(:rubygem)
+      @version_one_latest  = create(:version, rubygem: @gem_one, number: '0.2')
+      @version_one_earlier = create(:version, rubygem: @gem_one, number: '0.1')
+      @version_two_latest  = create(:version, rubygem: @gem_two, number: '1.0')
+      @version_two_earlier = create(:version, rubygem: @gem_two, number: '0.5')
+      @version_three = create(:version, rubygem: @gem_three, number: '1.7')
+      @version_four = create(:version, rubygem: @gem_four, number: '3.9')
+      @version_five = create(:version, rubygem: @gem_five, number: '4.5')
 
-      @version_one_latest.dependencies << create(:dependency, :version => @version_one_latest, :rubygem => @dep_rubygem)
-      @version_two_earlier.dependencies << create(:dependency, :version => @version_two_earlier, :rubygem => @dep_rubygem)
-      @version_three.dependencies << create(:dependency, :version => @version_three, :rubygem => @dep_rubygem)
+      @version_one_latest.dependencies << create(:dependency,
+        version: @version_one_latest,
+        rubygem: @dep_rubygem)
+      @version_two_earlier.dependencies << create(:dependency,
+        version: @version_two_earlier,
+        rubygem: @dep_rubygem)
+      @version_three.dependencies << create(:dependency,
+        version: @version_three,
+        rubygem: @dep_rubygem)
+      @version_five.dependencies << create(:dependency, :development,
+        version: @version_five,
+        rubygem: @dep_rubygem)
     end
 
     should "return names of reverse dependencies" do
-      get :reverse_dependencies, :id => @dep_rubygem.to_param, :format => "json"
-      gems = MultiJson.load(@response.body)
+      get :reverse_dependencies, id: @dep_rubygem.to_param, format: "json"
+      gems = JSON.load(@response.body)
 
-      assert_equal 3, gems.size
+      assert_equal 4, gems.size
 
       assert gems.include?(@gem_one.name)
       assert gems.include?(@gem_two.name)
       assert gems.include?(@gem_three.name)
-      assert ! gems.include?(@gem_four.name)
+      refute gems.include?(@gem_four.name)
+    end
+
+    context "with only=development" do
+      should "only return names of reverse development dependencies" do
+        get :reverse_dependencies,
+          id: @dep_rubygem.to_param,
+          only: "development",
+          format: "json"
+
+        gems = JSON.load(@response.body)
+
+        assert_equal 1, gems.size
+
+        assert gems.include?(@gem_five.name)
+      end
+    end
+
+    context "with only=runtime" do
+      should "only return names of reverse development dependencies" do
+        get :reverse_dependencies,
+          id: @dep_rubygem.to_param,
+          only: "runtime",
+          format: "json"
+
+        gems = JSON.load(@response.body)
+
+        assert_equal 3, gems.size
+
+        assert gems.include?(@gem_one.name)
+        assert gems.include?(@gem_two.name)
+        assert gems.include?(@gem_three.name)
+      end
     end
   end
 end

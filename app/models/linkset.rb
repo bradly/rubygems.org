@@ -1,10 +1,14 @@
 class Linkset < ActiveRecord::Base
   belongs_to :rubygem
 
-  LINKS = %w(home wiki docs mail code bugs).freeze
+  LINKS = %w(home code docs wiki mail bugs).freeze
 
   LINKS.each do |url|
-    validates_formatting_of url.to_sym, :using => :url, :allow_nil => true, :allow_blank => true, :message => "does not appear to be a valid URL"
+    validates_formatting_of url.to_sym,
+      using: :url,
+      allow_nil: true,
+      allow_blank: true,
+      message: "does not appear to be a valid URL"
   end
 
   def empty?
@@ -12,6 +16,6 @@ class Linkset < ActiveRecord::Base
   end
 
   def update_attributes_from_gem_specification!(spec)
-    self.update_attributes!(:home => spec.homepage)
+    update_attributes!(home: spec.homepage)
   end
 end

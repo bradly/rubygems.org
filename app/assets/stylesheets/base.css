@@ -21,8 +21,13 @@ footer, header, hgroup, menu, nav, section {
 
 body {
   background-color: #e9573f;
-  font-family: "aktiv-grotesk-std", sans-serif;
+  color: #000000;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
   font-size: 15px; }
+
+h1 {
+  font-family: Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
 
 section:not(:last-of-type) {
   border-bottom-width: 5px; }

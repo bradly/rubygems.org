@@ -2,33 +2,52 @@ Rails.application.routes.draw do
   ################################################################################
   # Root
 
-  root :to => 'home#index'
+  root to: 'home#index'
 
   ################################################################################
-  # API v1
+  # API
 
   namespace :api do
+    namespace :v2 do
+      resources :rubygems, param: :name, only: [] do
+        resources :versions, param: :number, only: :show, constraints: {
+          number: /#{Gem::Version::VERSION_PATTERN}(?=\.json\z)|#{Gem::Version::VERSION_PATTERN}/
+        }
+      end
+    end
+
     namespace :v1 do
-      resource :api_key, :only => :show do
+      resource :api_key, only: :show do
         put :reset
       end
-      resources :profiles, :only => :show
-      resources :downloads, :only => :index do
-        get :top, :on => :collection
-        get :all, :on => :collection
+      resources :profiles, only: :show
+      resources :downloads, only: :index do
+        get :top, on: :collection
+        get :all, on: :collection
       end
       constraints id: Patterns::ROUTE_PATTERN, format: /json|yaml/ do
-        get 'owners/:handle/gems', to: 'owners#gems', as: 'owners_gems', constraints: {handle: Patterns::ROUTE_PATTERN}, format: true
+        get 'owners/:handle/gems',
+          to: 'owners#gems',
+          as: 'owners_gems',
+          constraints: { handle: Patterns::ROUTE_PATTERN },
+          format: true
 
         resources :downloads, only: :show, format: true
 
         resources :versions, only: :show, format: true do
           member do
             get :reverse_dependencies, format: true
-            get 'latest', to: 'versions#latest', as: 'latest', format: true, constraints: {format: /json|js/}
+            get 'latest',
+              to: 'versions#latest',
+              as: 'latest',
+              format: true,
+              constraints: { format: /json|js/ }
           end
 
-          resources :downloads, only: [:index, :show], controller: 'versions/downloads', format: true do
+          resources :downloads,
+            only: [:index],
+            controller: 'versions/downloads',
+            format: true do
             collection do
               get :search, format: true
             end
@@ -36,18 +55,20 @@ Rails.application.routes.draw do
         end
       end
 
-      resources :dependencies, :only => :index
-
-      resources :rubygems, path: 'gems', only: [:create, :show, :index], id: Patterns::LAZY_ROUTE_PATTERN, format: /json|yaml/ do
+      resources :rubygems,
+        path: 'gems',
+        only: [:create, :show, :index],
+        id: Patterns::LAZY_ROUTE_PATTERN,
+        format: /json|yaml/ do
         member do
           get :reverse_dependencies
         end
         collection do
-          delete :yank
-          put :unyank
+          delete :yank, to: "deletions#create"
+          put :unyank, to: "deletions#destroy"
         end
-        constraints :rubygem_id => Patterns::ROUTE_PATTERN do
-          resource :owners, :only => [:show, :create, :destroy]
+        constraints rubygem_id: Patterns::ROUTE_PATTERN do
+          resource :owners, only: [:show, :create, :destroy]
         end
       end
 
@@ -58,9 +79,9 @@ Rails.application.routes.draw do
         end
       end
 
-      resource :search, :only => :show
+      resource :search, only: :show
 
-      resources :web_hooks, :only => [:create, :index] do
+      resources :web_hooks, only: [:create, :index] do
         collection do
           delete :remove
           post :fire
@@ -72,33 +93,39 @@ Rails.application.routes.draw do
   ################################################################################
   # API v0
 
-  scope :to => 'api/deprecated#index' do
+  scope to: 'api/deprecated#index' do
     get 'api_key'
     put 'api_key/reset'
 
     post 'gems'
-    get  'gems/:id.json'
+    get 'gems/:id.json'
 
-    scope :path => 'gems/:rubygem_id' do
-      put  'migrate'
+    scope path: 'gems/:rubygem_id' do
+      put 'migrate'
       post 'migrate'
-      get    'owners(.:format)'
-      post   'owners(.:format)'
+      get 'owners(.:format)'
+      post 'owners(.:format)'
       delete 'owners(.:format)'
     end
   end
 
   ################################################################################
   # UI
-  scope constraints: {format: :html}, defaults: {format: 'html'} do
-    resource  :search,    :only => :show
-    resource  :dashboard, :only => :show, constraints: {format: /html|atom/}
-    resources :profiles,  :only => :show
-    resource  :profile,   :only => [:edit, :update]
-    resources :stats,     :only => :index, :constraints => RecoveryMode
+  scope constraints: { format: :html }, defaults: { format: 'html' } do
+    resource :search,    only: :show
+    resource :dashboard, only: :show, constraints: { format: /html|atom/ }
+    resources :profiles, only: :show
+    resource :profile, only: [:edit, :update]
+    resources :stats, only: :index
 
-    resources :rubygems, only: [:index, :show, :edit, :update], path: 'gems', constraints: {id: Patterns::ROUTE_PATTERN, format: /html|atom/} do
-      resource  :subscription, only: [:create, :destroy], constraints: {format: :js}, defaults: {format: :js}
+    resources :rubygems,
+      only: [:index, :show, :edit, :update],
+      path: 'gems',
+      constraints: { id: Patterns::ROUTE_PATTERN, format: /html|atom/ } do
+      resource :subscription,
+        only: [:create, :destroy],
+        constraints: { format: :js },
+        defaults: { format: :js }
       resources :versions, only: [:show, :index]
     end
   end
@@ -118,7 +145,9 @@ Rails.application.routes.draw do
   # Internal Routes
 
   namespace :internal do
-    get 'background_job_stats', to: Internal::BackgroundJobStatsController.action(:stats)
+    get 'ping' => 'ping#index'
+    get 'revision' => 'ping#revision'
   end
 
+  use_doorkeeper scope: 'oauth'
 end

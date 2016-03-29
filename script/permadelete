@@ -1,31 +1,34 @@
 #!/usr/bin/env ruby
 
-unless name = ARGV.first
-  abort "Usage: script/permadelete [GEM_NAME]"
-end
-
 ENV['RAILS_ENV'] ||= 'production'
 require_relative '../config/environment'
 
-index   = Indexer.new
-rubygem = Rubygem.find_by_name!(name)
+name, number, email = ARGV
 
-if !rubygem
-  puts "Gem '#{name}' was not found!"
-  exit 1
+if [name, number, email].any?(&:blank?)
+  abort "Usage: #{$PROGRAM_NAME} [GEM_NAME=hola] [VERSION=all] [AS=email]"
 end
 
-names   = rubygem.versions.map(&:full_name)
+rubygem = Rubygem.find_by_name!(name)
+
+versions = begin
+  if number == "all"
+    rubygem.versions
+  else
+    [rubygem.versions.find_by_number!(number)]
+  end
+end
+
+owner = User.find_by_email!(email)
 
 require 'highline'
 terminal = HighLine.new
-confirm  = terminal.ask("Are you sure you want to permadelete #{name} with #{names.size} versions? (Y/N)")
+confirm  = terminal.ask "Permanently delete #{name} with #{versions.size} versions? (y/N)"
 
-if confirm.upcase == "Y" || confirm.upcase == "YES"
-  names.map { |n| index.directory.files.get("gems/#{n}.gem") }.compact.each(&:destroy)
-  names.map { |n| index.directory.files.get("quick/Marshal.4.8/#{n}.gemspec.rz") }.compact.each(&:destroy)
-
-  rubygem.destroy
+if confirm.casecmp("Y") || confirm.casecmp("YES")
+  versions.each do |version|
+    owner.deletions.create!(version: version)
+  end
 
   puts "#{name} permadeleted."
 else

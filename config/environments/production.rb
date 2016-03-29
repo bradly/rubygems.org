@@ -16,7 +16,8 @@ Rails.application.configure do
 
   # Enable Rack::Cache to put a simple HTTP cache in front of your application
   # Add `rack-cache` to your Gemfile before enabling this.
-  # For large-scale production use, consider using a caching reverse proxy like nginx, varnish or squid.
+  # For large-scale production use, consider using a caching reverse proxy like
+  # nginx, varnish or squid.
   # config.action_dispatch.rack_cache = true
 
   # Disable Rails's static asset server (Apache or nginx will already do this).
@@ -32,16 +33,18 @@ Rails.application.configure do
   # Generate digests for assets URLs.
   config.assets.digest = true
 
-  # `config.assets.precompile` and `config.assets.version` have moved to config/initializers/assets.rb
+  # `config.assets.precompile` and `config.assets.version` have moved to
+  # config/initializers/assets.rb
 
   # Specifies the header that your server uses for sending files.
   config.action_dispatch.x_sendfile_header = 'X-Accel-Redirect'
 
-  # Force all access to the app over SSL, use Strict-Transport-Security, and use secure cookies.
-  # config.force_ssl = true
+  # Force all access to the app over SSL and use secure cookies.
+  config.force_ssl = true
+  config.ssl_options = { hsts: false }
 
   # Set to :debug to see everything in the log.
-  config.log_level = :error
+  config.log_level = :info
 
   # Prepend all log lines with the following tags.
   # config.log_tags = [ :subdomain, :uuid ]
@@ -59,7 +62,8 @@ Rails.application.configure do
   # Set this to true and configure the email server for immediate delivery to raise delivery errors.
   # config.action_mailer.raise_delivery_errors = false
   config.action_mailer.delivery_method = :sendmail
-  config.action_mailer.default_url_options = { host: Gemcutter::HOST, protocol: "https" }
+  config.action_mailer.default_url_options = { host: Gemcutter::HOST,
+                                               protocol: Gemcutter::PROTOCOL }
 
   # Enable locale fallbacks for I18n (makes lookups for any locale fall back to
   # the I18n.default_locale when a translation cannot be found).
@@ -77,7 +81,5 @@ Rails.application.configure do
   # Do not dump schema after migrations.
   config.active_record.dump_schema_after_migration = false
 end
-
-Excon.defaults[:ssl_ca_path]= "/etc/ssl/certs"
 
 require Rails.root.join("config", "secret") if Rails.root.join("config", "secret.rb").file?

@@ -1,24 +1,24 @@
 class WebHook < ActiveRecord::Base
-  GLOBAL_PATTERN = '*'
+  GLOBAL_PATTERN = '*'.freeze
 
   belongs_to :user
   belongs_to :rubygem
 
-  validates_formatting_of :url, :using => :url, :message => "does not appear to be a valid URL"
-  validate :unique_hook, :on => :create
+  validates_formatting_of :url, using: :url, message: "does not appear to be a valid URL"
+  validate :unique_hook, on: :create
 
   def self.global
-    where(:rubygem_id => nil)
+    where(rubygem_id: nil)
   end
 
   def self.specific
-    where("rubygem_id is not null")
+    where.not(rubygem_id: nil)
   end
 
-  def fire(host_with_port, deploy_gem, version, delayed=true)
-    job = Notifier.new(self.url, host_with_port, deploy_gem, version, self.user.api_key)
+  def fire(protocol, host_with_port, deploy_gem, version, delayed = true)
+    job = Notifier.new(url, protocol, host_with_port, deploy_gem, version, user.api_key)
     if delayed
-      Delayed::Job.enqueue job, :priority => PRIORITIES[:web_hook]
+      Delayed::Job.enqueue job, priority: PRIORITIES[:web_hook]
     else
       job.perform
     end
@@ -55,16 +55,16 @@ class WebHook < ActiveRecord::Base
   def payload
     {
       'failure_count' => failure_count,
-      'url'           => url,
+      'url'           => url
     }
   end
 
-  def as_json(options={})
+  def as_json(*)
     payload
   end
 
-  def to_xml(options={})
-    payload.to_xml(options.merge(:root => 'web_hook'))
+  def to_xml(options = {})
+    payload.to_xml(options.merge(root: 'web_hook'))
   end
 
   def to_yaml(*args)
@@ -72,22 +72,24 @@ class WebHook < ActiveRecord::Base
   end
 
   def encode_with(coder)
-    coder.tag, coder.implicit, coder.map = nil, true, payload
+    coder.tag = nil
+    coder.implicit = true
+    coder.map = payload
   end
 
   private
 
   def unique_hook
     if user && rubygem
-      if WebHook.exists?(:user_id    => user.id,
-                         :rubygem_id => rubygem.id,
-                         :url        => url)
+      if WebHook.exists?(user_id: user.id,
+                         rubygem_id: rubygem.id,
+                         url: url)
         errors[:base] << "A hook for #{url} has already been registered for #{rubygem.name}"
       end
     elsif user
-      if WebHook.exists?(:user_id    => user.id,
-                         :rubygem_id => nil,
-                         :url        => url)
+      if WebHook.exists?(user_id: user.id,
+                         rubygem_id: nil,
+                         url: url)
         errors[:base] << "A global hook for #{url} has already been registered"
       end
     else

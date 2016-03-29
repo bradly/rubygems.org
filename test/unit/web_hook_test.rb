@@ -6,7 +6,7 @@ class WebHookTest < ActiveSupport::TestCase
 
   should "be valid for normal hook" do
     hook = create(:web_hook)
-    assert !hook.global?
+    refute hook.global?
     assert WebHook.global.empty?
     assert_equal [hook], WebHook.specific
   end
@@ -20,14 +20,14 @@ class WebHookTest < ActiveSupport::TestCase
   end
 
   should "require user" do
-    hook = build(:web_hook, :user => nil)
-    assert !hook.valid?
+    hook = build(:web_hook, user: nil)
+    refute hook.valid?
   end
 
   ["badurl", "", nil].each do |url|
     should "invalidate with #{url.inspect} as the url" do
-      hook = build(:web_hook, :url => url)
-      assert !hook.valid?
+      hook = build(:web_hook, url: url)
+      refute hook.valid?
     end
   end
 
@@ -35,26 +35,25 @@ class WebHookTest < ActiveSupport::TestCase
     setup do
       @url     = "http://example.org"
       @user    = create(:user)
-      @webhook = create(:global_web_hook, :user    => @user,
-                                           :url     => @url)
+      @webhook = create(:global_web_hook, user: @user, url: @url)
     end
 
     should "not be able to create a webhook under this user, gem, and url" do
-      webhook = WebHook.new(:user    => @user,
-                            :url     => @url)
-      assert !webhook.valid?
+      webhook = WebHook.new(user: @user,
+                            url: @url)
+      refute webhook.valid?
     end
 
     should "be able to create a webhook for a url under this user and gem" do
-      webhook = WebHook.new(:user    => @user,
-                            :url     => "http://example.net")
+      webhook = WebHook.new(user: @user,
+                            url: "http://example.net")
       assert webhook.valid?
     end
 
     should "be able to create a webhook for another user under this url" do
       other_user = create(:user)
-      webhook = WebHook.new(:user    => other_user,
-                            :url     => @url)
+      webhook = WebHook.new(user: other_user,
+                            url: @url)
       assert webhook.valid?
     end
   end
@@ -64,87 +63,85 @@ class WebHookTest < ActiveSupport::TestCase
       @url     = "http://example.org"
       @user    = create(:user)
       @rubygem = create(:rubygem)
-      @webhook = create(:web_hook, :user    => @user,
-                                    :rubygem => @rubygem,
-                                    :url     => @url)
+      @webhook = create(:web_hook, user: @user, rubygem: @rubygem, url: @url)
     end
 
     should "show limited attributes for to_json" do
       assert_equal(
-      {
-        'url'           => @url,
-        'failure_count' => @webhook.failure_count
-      }, MultiJson.load(@webhook.to_json))
+        {
+          'url'           => @url,
+          'failure_count' => @webhook.failure_count
+        }, JSON.load(@webhook.to_json))
     end
 
     should "show limited attributes for to_xml" do
       xml = Nokogiri.parse(@webhook.to_xml)
 
       assert_equal "web-hook", xml.root.name
-      assert_equal %w[failure-count url], xml.root.children.select(&:element?).map(&:name).sort
+      assert_equal %w(failure-count url), xml.root.children.select(&:element?).map(&:name).sort
       assert_equal @webhook.url, xml.at_css("url").content
       assert_equal @webhook.failure_count, xml.at_css("failure-count").content.to_i
     end
 
     should "show limited attributes for to_yaml" do
       assert_equal(
-      {
-        'url'           => @url,
-        'failure_count' => @webhook.failure_count
-      }, YAML.load(@webhook.to_yaml))
+        {
+          'url'           => @url,
+          'failure_count' => @webhook.failure_count
+        }, YAML.load(@webhook.to_yaml))
     end
 
     should "not be able to create a webhook under this user, gem, and url" do
-      webhook = WebHook.new(:user    => @user,
-                            :rubygem => @rubygem,
-                            :url     => @url)
-      assert !webhook.valid?
+      webhook = WebHook.new(user: @user,
+                            rubygem: @rubygem,
+                            url: @url)
+      refute webhook.valid?
     end
 
     should "be able to create a webhook for a url under this user and gem" do
-      webhook = WebHook.new(:user    => @user,
-                            :rubygem => @rubygem,
-                            :url     => "http://example.net")
+      webhook = WebHook.new(user: @user,
+                            rubygem: @rubygem,
+                            url: "http://example.net")
       assert webhook.valid?
     end
 
     should "be able to create a webhook for another rubygem under this user and url" do
       other_rubygem = create(:rubygem)
-      webhook = WebHook.new(:user    => @user,
-                            :rubygem => other_rubygem,
-                            :url     => @url)
+      webhook = WebHook.new(user: @user,
+                            rubygem: other_rubygem,
+                            url: @url)
       assert webhook.valid?
     end
 
     should "be able to create a webhook for another user under this rubygem and url" do
       other_user = create(:user)
-      webhook = WebHook.new(:user    => other_user,
-                            :rubygem => @rubygem,
-                            :url     => @url)
+      webhook = WebHook.new(user: other_user,
+                            rubygem: @rubygem,
+                            url: @url)
       assert webhook.valid?
     end
 
     should "be able to create a global webhook under this user and url" do
-      webhook = WebHook.new(:user    => @user,
-                            :url     => @url)
+      webhook = WebHook.new(user: @user,
+                            url: @url)
       assert webhook.valid?
     end
   end
 
   context "with a rubygem and version" do
     setup do
-      @rubygem = create(:rubygem, :name => "foogem", :downloads => 42)
+      @rubygem = create(:rubygem, name: "foogem", downloads: 42)
       @version = create(:version,
-                         :rubygem           => @rubygem,
-                         :number            => "3.2.1",
-                         :authors           => %w[AUTHORS],
-                         :description       => "DESC")
+        rubygem: @rubygem,
+        number: "3.2.1",
+        authors: %w(AUTHORS),
+        description: "DESC")
       @hook    = create(:web_hook, rubygem: @rubygem)
-      @job     = Notifier.new(@hook.url, 'localhost:1234', @rubygem, @version)
+      @job     = Notifier.new(@hook.url, 'http', 'localhost:1234', @rubygem, @version)
     end
 
     should "have gem properties encoded in JSON" do
-      payload = MultiJson.load(@job.payload)
+      payload = JSON.load(@job.payload)
       assert_equal "foogem",    payload['name']
       assert_equal "3.2.1",     payload['version']
       assert_equal 'ruby',      payload['platform']
@@ -156,10 +153,10 @@ class WebHookTest < ActiveSupport::TestCase
     end
 
     should "send the right version out even for older gems" do
-      new_version = create(:version, :number => "2.0.0", :rubygem => @rubygem)
+      new_version = create(:version, number: "2.0.0", rubygem: @rubygem)
       new_hook    = create(:web_hook)
-      job         = Notifier.new(new_hook.url, 'localhost:1234', @rubygem, new_version)
-      payload     = MultiJson.load(job.payload)
+      job         = Notifier.new(new_hook.url, 'http', 'localhost:1234', @rubygem, new_version)
+      payload     = JSON.load(job.payload)
 
       assert_equal "foogem", payload['name']
       assert_equal "2.0.0",  payload['version']
@@ -172,20 +169,18 @@ class WebHookTest < ActiveSupport::TestCase
     setup do
       @url     = 'http://example.com/gemcutter'
       @rubygem = create(:rubygem)
-      @version = create(:version, :rubygem => @rubygem)
-      @hook    = create(:web_hook,
-                         :rubygem => @rubygem,
-                         :url     => @url)
+      @version = create(:version, rubygem: @rubygem)
+      @hook    = create(:web_hook, rubygem: @rubygem, url: @url)
 
-      stub(RestClient).post {}
-      @hook.fire('rubygems.org', @rubygem, @version, false)
+      RestClient.stubs(:post)
+      @hook.fire('https', 'rubygems.org', @rubygem, @version, false)
     end
 
     should "include an Authorization header" do
       authorization = Digest::SHA2.hexdigest(@rubygem.name + @version.number + @hook.user.api_key)
 
-      assert_received(RestClient) do |client|
-        client.post anything, anything, hash_including("Authorization" => authorization)
+      assert_received(RestClient, :post) do |client|
+        client.with(anything, anything, has_entries("Authorization" => authorization))
       end
     end
 
@@ -199,9 +194,8 @@ class WebHookTest < ActiveSupport::TestCase
       @url     = 'http://someinvaliddomain.com'
       @user    = create(:user)
       @rubygem = create(:rubygem)
-      @version = create(:version, :rubygem => @rubygem)
-      @hook    = create(:global_web_hook, :url     => @url,
-                                           :user    => @user)
+      @version = create(:version, rubygem: @rubygem)
+      @hook    = create(:global_web_hook, url: @url, user: @user)
     end
 
     should "increment failure count for hook on errors" do
@@ -213,9 +207,9 @@ class WebHookTest < ActiveSupport::TestCase
        Net::HTTPBadResponse,
        Net::HTTPHeaderSyntaxError,
        Net::ProtocolError].each_with_index do |exception, index|
-        stub(RestClient).post { raise exception }
+        RestClient.stubs(:post).raises(exception)
 
-        @hook.fire('rubygems.org', @rubygem, @version, false)
+        @hook.fire('https', 'rubygems.org', @rubygem, @version, false)
 
         assert_equal index + 1, @hook.reload.failure_count
         assert @hook.global?

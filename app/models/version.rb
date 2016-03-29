@@ -2,35 +2,53 @@ require 'digest/sha2'
 
 class Version < ActiveRecord::Base
   belongs_to :rubygem, touch: true
-  has_many :dependencies, -> { order('rubygems.name ASC').includes(:rubygem) }, :dependent => :destroy
+  has_many :dependencies, -> { order('rubygems.name ASC').includes(:rubygem) }, dependent: :destroy
+  has_one :gem_download, proc { |m| where(rubygem_id: m.rubygem_id) }
 
-  before_save      :update_prerelease
+  before_save :update_prerelease
   after_validation :join_authors
-  after_create     :full_nameify!
-  after_save       :reorder_versions
+  after_create :full_nameify!
+  after_save :reorder_versions
 
   serialize :licenses
   serialize :requirements
 
-  validates :number,   :format => {:with => /\A#{Gem::Version::VERSION_PATTERN}\z/}
-  validates :platform, :format => {:with => Rubygem::NAME_PATTERN}
+  validates :number,   format: { with: /\A#{Gem::Version::VERSION_PATTERN}\z/ }
+  validates :platform, format: { with: Rubygem::NAME_PATTERN }
 
-  validate :platform_and_number_are_unique, :on => :create
-  validate :authors_format, :on => :create
+  validate :platform_and_number_are_unique, on: :create
+  validate :authors_format, on: :create
   attribute :authors, Type::Value.new
 
+  # TODO: Remove this once we move to GemDownload only
+  after_create :create_gem_download
+  def create_gem_download
+    GemDownload.create!(count: 0, rubygem_id: rubygem_id, version_id: id)
+  end
+
   def self.reverse_dependencies(name)
-    joins({ dependencies: :rubygem }).
-      where(rubygems: { name: name })
+    joins(dependencies: :rubygem)
+      .indexed
+      .where(rubygems: { name: name })
+  end
+
+  def self.reverse_runtime_dependencies(name)
+    reverse_dependencies(name)
+      .merge(Dependency.runtime)
+  end
+
+  def self.reverse_development_dependencies(name)
+    reverse_dependencies(name)
+      .merge(Dependency.development)
   end
 
   def self.owned_by(user)
-    where(:rubygem_id => user.rubygem_ids)
+    where(rubygem_id: user.rubygem_ids)
   end
 
   def self.subscribed_to_by(user)
-    where(:rubygem_id => user.subscribed_gem_ids).
-      by_created_at
+    where(rubygem_id: user.subscribed_gem_ids)
+      .by_created_at
   end
 
   def self.with_deps
@@ -38,23 +56,23 @@ class Version < ActiveRecord::Base
   end
 
   def self.latest
-    where(:latest => true)
+    where(latest: true)
   end
 
   def self.prerelease
-    where(:prerelease => true)
+    where(prerelease: true)
   end
 
   def self.release
-    where(:prerelease => false)
+    where(prerelease: false)
   end
 
   def self.indexed
-    where(:indexed => true)
+    where(indexed: true)
   end
 
   def self.yanked
-    where(:indexed => false)
+    where(indexed: false)
   end
 
   def self.by_position
@@ -74,34 +92,62 @@ class Version < ActiveRecord::Base
   end
 
   def self.rows_for_index
-    joins(:rubygem).indexed.release.order("rubygems.name asc, position desc").pluck('rubygems.name', :number, :platform)
+    joins(:rubygem)
+      .indexed
+      .release
+      .order("rubygems.name asc, position desc")
+      .pluck('rubygems.name', :number, :platform)
   end
 
   def self.rows_for_latest_index
-    joins(:rubygem).indexed.latest.order("rubygems.name asc, position desc").pluck('rubygems.name', :number, :platform)
+    joins(:rubygem)
+      .indexed
+      .latest
+      .order("rubygems.name asc, position desc")
+      .pluck('rubygems.name', :number, :platform)
   end
 
   def self.rows_for_prerelease_index
-    joins(:rubygem).indexed.prerelease.order("rubygems.name asc, position desc").pluck('rubygems.name', :number, :platform)
+    joins(:rubygem)
+      .indexed
+      .prerelease
+      .order("rubygems.name asc, position desc")
+      .pluck('rubygems.name', :number, :platform)
   end
 
   def self.most_recent
     latest.find_by(platform: 'ruby') || latest.order(number: :desc).first || last
   end
 
-  def self.just_updated(limit=5)
-    where("versions.rubygem_id IN (SELECT versions.rubygem_id FROM versions GROUP BY versions.rubygem_id HAVING COUNT(versions.id) > 1)").
-      joins(:rubygem).
-      indexed.
-      by_created_at.
-      limit(limit)
+  # This method returns the new versions for brand new rubygems
+  def self.new_pushed_versions(limit = 5)
+    subquery = <<-SQL
+      versions.id IN (SELECT max(versions.id)
+                                FROM versions
+                            GROUP BY versions.rubygem_id
+                              HAVING COUNT(versions.rubygem_id) = 1)
+    SQL
+
+    Version.where(subquery).by_created_at.limit limit
+  end
+
+  def self.just_updated(limit = 5)
+    subquery = <<-SQL
+      versions.rubygem_id IN (SELECT versions.rubygem_id
+                                FROM versions
+                            GROUP BY versions.rubygem_id
+                              HAVING COUNT(versions.id) > 1)
+    SQL
+
+    where(subquery)
+      .joins(:rubygem)
+      .indexed
+      .by_created_at
+      .limit(limit)
   end
 
   def self.published(limit)
-    where("built_at <= ?", DateTime.now.utc).
-      indexed.
-      by_built_at.
-      limit(limit)
+    indexed.by_built_at.limit(limit)
   end
 
   def self.find_from_slug!(rubygem_id, slug)
@@ -121,19 +167,7 @@ class Version < ActiveRecord::Base
     platform != "ruby"
   end
 
-  def reorder_versions
-    rubygem.reorder_versions
-  end
-
-  def yank!
-    update_attributes!(:indexed => false)
-    Redis.current.lrem(Rubygem.versions_key(rubygem.name), 1, full_name)
-  end
-
-  def unyank!
-    update_attributes!(:indexed => true)
-    push
-  end
+  delegate :reorder_versions, to: :rubygem
 
   def push
     Redis.current.lpush(Rubygem.versions_key(rubygem.name), full_name)
@@ -144,31 +178,32 @@ class Version < ActiveRecord::Base
   end
 
   def size
-    read_attribute(:size) || 'N/A'
+    self[:size] || 'N/A'
   end
 
   def byte_size
-    read_attribute(:size)
+    self[:size]
   end
 
   def byte_size=(bs)
-    write_attribute :size, bs.to_i
+    self[:size] = bs.to_i
   end
 
   def info
-    [ description, summary, "This rubygem does not have a description or summary." ].detect(&:present?)
+    [description, summary, "This rubygem does not have a description or summary."].find(&:present?)
   end
 
   def update_attributes_from_gem_specification!(spec)
     update_attributes!(
-      :authors      => spec.authors,
-      :description  => spec.description,
-      :summary      => spec.summary,
-      :licenses     => spec.licenses,
-      :requirements => spec.requirements,
-      :built_at     => spec.date,
-      :ruby_version => spec.required_ruby_version.to_s,
-      :indexed      => true
+      authors: spec.authors,
+      description: spec.description,
+      summary: spec.summary,
+      licenses: spec.licenses,
+      metadata: spec.metadata || {},
+      requirements: spec.requirements,
+      built_at: spec.date,
+      ruby_version: spec.required_ruby_version.to_s,
+      indexed: true
     )
   end
 
@@ -181,30 +216,32 @@ class Version < ActiveRecord::Base
   end
 
   def <=>(other)
-    self_version  = self.to_gem_version
+    self_version  = to_gem_version
     other_version = other.to_gem_version
 
     if self_version == other_version
-      self.platform_as_number <=> other.platform_as_number
+      platform_as_number <=> other.platform_as_number
     else
       self_version <=> other_version
     end
   end
 
   def slug
-    full_name.gsub(/^#{rubygem.name}-/, '')
+    full_name.remove(/^#{rubygem.name}-/)
   end
 
   def downloads_count
-    Download.for(self)
+    gem_download.try(:count) || 0
   end
 
   def payload
     {
       'authors'         => authors,
       'built_at'        => built_at,
+      'created_at'      => created_at,
       'description'     => description,
       'downloads_count' => downloads_count,
+      'metadata'        => metadata,
       'number'          => number,
       'summary'         => summary,
       'platform'        => platform,
@@ -216,12 +253,12 @@ class Version < ActiveRecord::Base
     }
   end
 
-  def as_json(options={})
+  def as_json(*)
     payload
   end
 
-  def to_xml(options={})
-    payload.to_xml(options.merge(:root => 'version'))
+  def to_xml(options = {})
+    payload.to_xml(options.merge(root: 'version'))
   end
 
   def to_s
@@ -237,7 +274,16 @@ class Version < ActiveRecord::Base
   end
 
   def to_bundler
-    %{gem '#{rubygem.name}', '~> #{number}'}
+    if number[0] == "0"
+      %(gem '#{rubygem.name}', '~> #{number}')
+    else
+      release = feature_release(number)
+      if release == Gem::Version.new(number)
+        %(gem '#{rubygem.name}', '~> #{release}')
+      else
+        %(gem '#{rubygem.name}', '~> #{release}', '>= #{number}')
+      end
+    end
   end
 
   def to_gem_version
@@ -250,14 +296,18 @@ class Version < ActiveRecord::Base
 
   def to_install
     command = "gem install #{rubygem.name}"
-    latest = prerelease ? rubygem.versions.by_position.prerelease.first : rubygem.versions.most_recent
+    latest = if prerelease
+               rubygem.versions.by_position.prerelease.first
+             else
+               rubygem.versions.most_recent
+             end
     command << " -v #{number}" if latest != self
     command << " --pre" if prerelease
     command
   end
 
   def authors_array
-    self.authors.split(',').flatten
+    authors.split(',').flatten
   end
 
   def sha256_hex
@@ -266,53 +316,63 @@ class Version < ActiveRecord::Base
 
   def recalculate_sha256
     key = "gems/#{full_name}.gem"
-    dir = Indexer.new.directory
-    if file = dir.files.get(key)
-      Digest::SHA2.base64digest file.body
-    end
+    file = RubygemFs.instance.get(key)
+    Digest::SHA2.base64digest(file) if file
   end
 
   def recalculate_sha256!
     update_attributes(sha256: recalculate_sha256)
   end
 
+  def recalculate_metadata!
+    key = "gems/#{full_name}.gem"
+    file = RubygemFs.instance.get(key)
+    if file
+      spec = Gem::Package.new(StringIO.new(file)).spec
+      metadata = spec.metadata
+      update(metadata: metadata || {})
+    end
+  rescue Gem::Package::FormatError
+    nil
+  end
+
+  def documentation_path
+    "http://www.rubydoc.info/gems/#{rubygem.name}/#{number}"
+  end
+
   private
 
   def platform_and_number_are_unique
-    if Version.exists?(:rubygem_id => rubygem_id,
-                       :number     => number,
-                       :platform   => platform)
-      errors[:base] << "A version already exists with this number or platform."
-    end
+    return unless Version.exists?(rubygem_id: rubygem_id, number: number, platform: platform)
+    errors[:base] << "A version already exists with this number or platform."
   end
 
   def authors_format
     string_authors = authors.is_a?(Array) && authors.grep(String)
-    if string_authors.blank? || string_authors.size != authors.size
-      errors.add :authors, "must be an Array of Strings"
-    end
+    return unless string_authors.blank? || string_authors.size != authors.size
+    errors.add :authors, "must be an Array of Strings"
   end
 
   def update_prerelease
-    self[:prerelease] = !!to_gem_version.prerelease?
+    self[:prerelease] = !!to_gem_version.prerelease? # rubocop:disable Style/DoubleNegation
     true
   end
 
   def join_authors
-    self.authors = self.authors.join(', ') if self.authors.is_a?(Array)
+    self.authors = authors.join(', ') if authors.is_a?(Array)
   end
 
   def full_nameify!
     self.full_name = "#{rubygem.name}-#{number}"
-    self.full_name << "-#{platform}" if platformed?
-
-    Version.find(id).update_attributes(full_name: full_name)
-
-    Redis.current.hmset(Version.info_key(full_name),
-                 :name, rubygem.name,
-                 :number, number,
-                 :platform, platform)
-
+    full_name << "-#{platform}" if platformed?
+    update_attributes(full_name: full_name)
+    Redis.current.hmset(Version.info_key(full_name), :name, rubygem.name,
+      :number, number, :platform, platform)
     push
+  end
+
+  def feature_release(number)
+    feature_version = Gem::Version.new(number).segments[0, 2].join('.')
+    Gem::Version.new(feature_version)
   end
 end

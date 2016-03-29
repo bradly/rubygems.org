@@ -4,6 +4,7 @@ class UserTest < ActiveSupport::TestCase
   should have_many(:ownerships)
   should have_many(:rubygems).through(:ownerships)
   should have_many(:subscribed_gems).through(:subscriptions)
+  should have_many(:deletions)
   should have_many(:subscriptions)
   should have_many(:web_hooks)
 
@@ -15,12 +16,12 @@ class UserTest < ActiveSupport::TestCase
       should_not allow_value("abc\n<script>bad").for(:handle)
 
       should "be between 2 and 40 characters" do
-        user = build(:user, :handle => "a")
-        assert ! user.valid?
+        user = build(:user, handle: "a")
+        refute user.valid?
         assert_contains user.errors[:handle], "is too short (minimum is 2 characters)"
 
         user.handle = "a" * 41
-        assert ! user.valid?
+        refute user.valid?
         assert_contains user.errors[:handle], "is too long (maximum is 40 characters)"
 
         user.handle = "abcdef"
@@ -29,17 +30,17 @@ class UserTest < ActiveSupport::TestCase
       end
 
       should "be invalid when an empty string" do
-        user = build(:user, :handle => "")
-        assert ! user.valid?
+        user = build(:user, handle: "")
+        refute user.valid?
       end
 
       should "be valid when nil and other users have a nil handle" do
-        assert build(:user, :handle => nil).valid?
-        assert build(:user, :handle => nil).valid?
+        assert build(:user, handle: nil).valid?
+        assert build(:user, handle: nil).valid?
       end
 
       should "show user id if no handle set" do
-        user = build(:user, :handle => nil, :id => 13)
+        user = build(:user, handle: nil, id: 13)
         assert_equal "#13", user.display_handle
 
         user.handle = "bills"
@@ -73,27 +74,32 @@ class UserTest < ActiveSupport::TestCase
       assert_nil User.authenticate(@user.email, "bad")
     end
 
-    should "only have email when boiling down to JSON" do
-      json = MultiJson.load(@user.to_json)
-      hash = {"email" => @user.email}
+    should "have email and handle on JSON" do
+      json = JSON.parse(@user.to_json)
+      hash = { "id" => @user.id, "email" => @user.email, 'handle' => @user.handle }
       assert_equal hash, json
     end
 
-    should "only have email when boiling down to XML" do
+    should "have email and handle on XML" do
       xml = Nokogiri.parse(@user.to_xml)
       assert_equal "user", xml.root.name
-      assert_equal %w[email], xml.root.children.select(&:element?).map(&:name)
+      assert_equal %w(id handle email), xml.root.children.select(&:element?).map(&:name)
       assert_equal @user.email, xml.at_css("email").content
     end
 
-    should "only have email when boiling down to YAML" do
+    should "have email and handle on YAML" do
       yaml = YAML.load(@user.to_yaml)
-      hash = {'email' => @user.email}
+      hash = { 'id' => @user.id, 'email' => @user.email, 'handle' => @user.handle }
       assert_equal hash, yaml
     end
 
     should "create api key" do
       assert_not_nil @user.api_key
+    end
+
+    should "give user if specified name is user handle or email" do
+      assert_not_nil User.find_by_name(@user.handle)
+      assert_equal User.find_by_name(@user.handle), User.find_by_name(@user.handle)
     end
 
     should "give email if handle is not set for name" do
@@ -124,7 +130,7 @@ class UserTest < ActiveSupport::TestCase
 
     should "only return rubygems" do
       my_rubygem = create(:rubygem)
-      create(:ownership, :user => @user, :rubygem => my_rubygem)
+      create(:ownership, user: @user, rubygem: my_rubygem)
       assert_equal [my_rubygem], @user.rubygems
     end
 
@@ -132,26 +138,26 @@ class UserTest < ActiveSupport::TestCase
       setup do
         @subscribed_gem   = create(:rubygem)
         @unsubscribed_gem = create(:rubygem)
-        create(:subscription, :user => @user, :rubygem => @subscribed_gem)
+        create(:subscription, user: @user, rubygem: @subscribed_gem)
       end
 
       should "only fetch the subscribed gems with #subscribed_gems" do
-        assert_contains         @user.subscribed_gems, @subscribed_gem
+        assert_contains @user.subscribed_gems, @subscribed_gem
         assert_does_not_contain @user.subscribed_gems, @unsubscribed_gem
       end
     end
 
     should "have all gems and specific gems for hooks" do
       rubygem = create(:rubygem)
-      rubygem_hook = create(:web_hook, :user => @user, :rubygem => rubygem)
-      global_hook  = create(:global_web_hook, :user => @user)
+      rubygem_hook = create(:web_hook, user: @user, rubygem: rubygem)
+      global_hook  = create(:global_web_hook, user: @user)
       all_hooks = @user.all_hooks
       assert_equal rubygem_hook, all_hooks[rubygem.name].first
       assert_equal global_hook, all_hooks["all gems"].first
     end
 
     should "have all gems for hooks" do
-      global_hook  = create(:global_web_hook, :user => @user)
+      global_hook = create(:global_web_hook, user: @user)
       all_hooks = @user.all_hooks
       assert_equal global_hook, all_hooks["all gems"].first
       assert_equal 1, all_hooks.keys.size
@@ -159,29 +165,10 @@ class UserTest < ActiveSupport::TestCase
 
     should "have only specific for hooks" do
       rubygem = create(:rubygem)
-      rubygem_hook = create(:web_hook, :user => @user, :rubygem => rubygem)
+      rubygem_hook = create(:web_hook, user: @user, rubygem: rubygem)
       all_hooks = @user.all_hooks
       assert_equal rubygem_hook, all_hooks[rubygem.name].first
       assert_equal 1, all_hooks.keys.size
-    end
-  end
-
-  context "downloads" do
-    setup do
-      @user      = create(:user)
-      @rubygem   = create(:rubygem)
-      @ownership = create(:ownership, :rubygem => @rubygem, :user => @user)
-      @version   = create(:version, :rubygem => @rubygem)
-
-      Timecop.freeze(1.day.ago) do
-        Download.incr(@version.rubygem.name, @version.full_name)
-      end
-      2.times { Download.incr(@version.rubygem.name, @version.full_name) }
-    end
-
-    should "sum up downloads for this user" do
-      assert_equal 2, @user.today_downloads_count
-      assert_equal 3, @user.total_downloads_count
     end
   end
 
@@ -189,26 +176,26 @@ class UserTest < ActiveSupport::TestCase
     setup do
       @user     = create(:user)
       @rubygems = [[100, 2000], [200, 1000], [300, 3000]].map do |downloads, real_downloads|
-        create(:rubygem, :downloads => downloads).tap do |rubygem|
-          Redis.current[Download.key(rubygem)] = real_downloads
-          create(:ownership, :rubygem => rubygem, :user => @user)
-          create(:version, :rubygem => rubygem)
+        create(:rubygem, downloads: downloads).tap do |rubygem|
+          GemDownload.find_by(rubygem_id: rubygem.id, version_id: 0).update(count: real_downloads)
+          create(:ownership, rubygem: rubygem, user: @user)
+          create(:version, rubygem: rubygem)
         end
       end
     end
 
     should "sort by downloads method" do
-      assert_equal @rubygems.values_at(2, 0, 1),
-        @user.rubygems_downloaded
+      assert_equal @rubygems.values_at(2, 0, 1), @user.rubygems_downloaded
     end
 
     should "not include gem if all versions have been yanked" do
-      @rubygems.first.versions.first.yank!
+      @rubygems.first.versions.first.update! indexed: false
       assert_equal 2, @user.rubygems_downloaded.count
     end
 
-    should "total their number of pushed rubygems" do
-      assert_equal @user.total_rubygems_count, 3
+    should "total their number of pushed rubygems except yanked gems" do
+      @rubygems.first.versions.first.update! indexed: false
+      assert_equal @user.total_rubygems_count, 2
     end
   end
 

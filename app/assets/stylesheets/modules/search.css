@@ -9,7 +9,6 @@
   border: none;
   border-radius: 5px;
   font-weight: 300;
-  font-family: "aktiv-grotesk-std", sans-serif;
   color: #141c22;
   outline: none; }
   .header__search::-webkit-input-placeholder, .home__search::-webkit-input-placeholder {
@@ -103,3 +102,18 @@
   box-sizing: border-box;
   width: 100%;
   font-size: 18px; }
+
+.search__suggestions {
+  color: #8a6d3b;
+  background-color: #fcf8e3;
+  padding: 15px;
+  margin-bottom: 20px;
+  border: 1px solid #faebcc;
+  border-radius: 4px;
+}
+
+.search__suggestions a {
+  font-weight: bold;
+  color: #e9573f;
+  text-decoration: underline;
+}

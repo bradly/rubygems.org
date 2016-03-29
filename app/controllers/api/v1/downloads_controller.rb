@@ -1,40 +1,46 @@
 class Api::V1::DownloadsController < Api::BaseController
-  respond_to :json, :yaml
-
   def index
+    total = GemDownload.total_count
     respond_to do |format|
-      format.any(:all) { render :text => Download.count }
-      format.json { render :json => {:total => Download.count} }
-      format.yaml { render :text => {:total => Download.count}.to_yaml }
+      format.any(:all) { render text: total }
+      format.json { render json: { total: total } }
+      format.yaml { render text: { total: total }.to_yaml }
     end
   end
 
   def show
     full_name = params[:id]
-    if rubygem_name = Version.rubygem_name_for(full_name) and rubygem = Rubygem.find_by_name(rubygem_name) and rubygem.public_versions.count.nonzero?
-      respond_with(
-        :total_downloads   => Download.for_rubygem(rubygem_name),
-        :version_downloads => Download.for_version(full_name)
-      )
+    version = Version.find_by(full_name: full_name)
+    if version && !version.yanked?
+      data = {
+        total_downloads: GemDownload.count_for_rubygem(version.rubygem_id),
+        version_downloads: GemDownload.count_for_version(version.id)
+      }
+      respond_with_data(data)
     else
-      render :text => "This rubygem could not be found.", :status => :not_found
+      render text: t(:this_rubygem_could_not_be_found), status: :not_found
     end
   end
 
   def top
-    respond_with(
-      :gems => Download.most_downloaded_today(50).map {|version, count|
-        [version.attributes, count]
-      }
-    )
+    render text: "This endpoint is not supported anymore", status: :gone
   end
 
   def all
-    respond_with(
-      :gems => Download.most_downloaded_all_time(50).map {|version, count|
-        [version.attributes, count]
-      }
-    )
+    gems = GemDownload.most_downloaded_gems.limit(50)
+    gems = gems.map do |gem|
+      next unless gem.version
+      [gem.version.attributes, gem.count]
+    end.compact
+    respond_with_data(gems: gems)
   end
 
+  private
+
+  def respond_with_data(data)
+    respond_to do |format|
+      format.json { render json: data }
+      format.yaml { render text: data.to_yaml }
+    end
+  end
 end

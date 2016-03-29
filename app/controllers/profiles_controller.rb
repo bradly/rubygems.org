@@ -1,5 +1,5 @@
 class ProfilesController < ApplicationController
-  before_action :redirect_to_root, :unless => :signed_in?, :except => :show
+  before_action :redirect_to_root, unless: :signed_in?, except: :show
 
   def edit
   end
@@ -15,9 +15,10 @@ class ProfilesController < ApplicationController
     if current_user.update_attributes(params_user)
       if current_user.email_reset
         sign_out
-        flash[:notice] = "You will receive an email within the next few minutes. " <<
-                         "It contains instructions for reconfirming your account with your new email address."
-        redirect_to root_path
+        flash[:notice] = "You will receive an email within the next few " \
+                         "minutes. It contains instructions for reconfirming " \
+                         "your account with your new email address."
+        redirect_to_root
       else
         flash[:notice] = "Your profile was updated."
         redirect_to edit_profile_path

@@ -1,7 +1,9 @@
 class Api::V1::ProfilesController < Api::BaseController
-  respond_to :json, :only => [:show]
-
   def show
-    respond_with User.find_by_slug!(params[:id])
+    @user = User.find_by_slug!(params[:id])
+    respond_to do |format|
+      format.json { render json: @user }
+      format.yaml { render yaml: @user }
+    end
   end
 end

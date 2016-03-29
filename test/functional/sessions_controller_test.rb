@@ -4,22 +4,22 @@ class SessionsControllerTest < ActionController::TestCase
   context "on POST to create" do
     context "when login and password are correct" do
       setup do
-        mock(User).authenticate('login', 'pass') { User.new }
-        post :create, :session => { :who => 'login', :password => 'pass' }
+        User.expects(:authenticate).with('login', 'pass').returns User.new
+        post :create, session: { who: 'login', password: 'pass' }
       end
 
       should respond_with :redirect
       should redirect_to('the dashboard') { dashboard_url }
 
       should "sign in the user" do
-        assert @controller.signed_in?
+        assert @controller.request.env[:clearance].signed_in?
       end
     end
 
     context "when login and password are incorrect" do
       setup do
-        mock(User).authenticate('login', 'pass') { nil }
-        post :create, :session => { :who => 'login', :password => 'pass' }
+        User.expects(:authenticate).with('login', 'pass')
+        post :create, session: { who: 'login', password: 'pass' }
       end
 
       should respond_with :unauthorized
@@ -27,7 +27,7 @@ class SessionsControllerTest < ActionController::TestCase
       should set_flash.now[:notice]
 
       should "not sign in the user" do
-        assert !@controller.signed_in?
+        refute @controller.request.env[:clearance].signed_in?
       end
     end
   end
@@ -41,7 +41,7 @@ class SessionsControllerTest < ActionController::TestCase
     should redirect_to('login page') { sign_in_url }
 
     should "sign out the user" do
-      assert !@controller.signed_in?
+      refute @controller.request.env[:clearance].signed_in?
     end
   end
 end

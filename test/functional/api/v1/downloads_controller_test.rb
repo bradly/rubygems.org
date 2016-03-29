@@ -1,10 +1,9 @@
 require 'test_helper'
 
 class Api::V1::DownloadsControllerTest < ActionController::TestCase
-
   def self.should_respond_to(format)
     should "return #{format.to_s.upcase} with the download count" do
-      get :index, :format => format
+      get :index, format: format
       assert_equal @count, yield(@response.body)
     end
   end
@@ -12,7 +11,7 @@ class Api::V1::DownloadsControllerTest < ActionController::TestCase
   context "On GET to index" do
     setup do
       @count = 30_000_000
-      stub(Download).count { @count }
+      create(:gem_download, count: @count)
     end
 
     should "return the download count" do
@@ -21,18 +20,18 @@ class Api::V1::DownloadsControllerTest < ActionController::TestCase
     end
 
     should_respond_to(:json) do |body|
-      MultiJson.load(body)['total']
+      JSON.load(body)['total']
     end
 
     should_respond_to(:yaml) do |body|
       YAML.load(body)[:total]
     end
 
-    should_respond_to(:text) {|body| body.to_i }
+    should_respond_to(:text, &:to_i)
   end
 
-  def get_show(version, format='json')
-    get :show, :id => version.full_name, :format => format
+  def get_show(version, format = 'json')
+    get :show, id: version.full_name, format: format
   end
 
   def self.should_respond_to(format, to_meth = :to_s)
@@ -61,17 +60,15 @@ class Api::V1::DownloadsControllerTest < ActionController::TestCase
 
   context "on GET to show" do
     setup do
-      rubygem  = create(:rubygem)
-      @version1 = create(:version, :rubygem => rubygem, :number => '1.0.0')
-      @version2 = create(:version, :rubygem => rubygem, :number => '2.0.0')
+      rubygem = create(:rubygem)
+      @version1 = create(:version, rubygem: rubygem, number: '1.0.0')
+      @version2 = create(:version, rubygem: rubygem, number: '2.0.0')
 
-      Download.incr(rubygem.name, @version1.full_name)
-      Download.incr(rubygem.name, @version2.full_name)
-      Download.incr(rubygem.name, @version2.full_name)
+      GemDownload.bulk_update([[@version1.full_name, 1], [@version2.full_name, 2]])
     end
 
     should_respond_to(:json) do |body|
-      MultiJson.load body
+      JSON.load body
     end
 
     should_respond_to(:yaml, :to_sym) do |body|
@@ -81,7 +78,7 @@ class Api::V1::DownloadsControllerTest < ActionController::TestCase
 
   context "on GET to show for an unknown gem" do
     setup do
-      get :show, :id => "rials", :format => 'json'
+      get :show, id: "rials", format: 'json'
     end
 
     should "return a 404" do
@@ -96,7 +93,7 @@ class Api::V1::DownloadsControllerTest < ActionController::TestCase
   context "on GET to show for a yanked gem" do
     setup do
       rubygem = create(:rubygem)
-      @version = create(:version, :rubygem => rubygem, :number => "1.0.0", :indexed => false)
+      @version = create(:version, rubygem: rubygem, number: "1.0.0", indexed: false)
       get_show(@version)
     end
 
@@ -109,84 +106,38 @@ class Api::V1::DownloadsControllerTest < ActionController::TestCase
     end
   end
 
-  def self.should_respond_to(format)
-    context "with #{format.to_s.upcase}" do
-      setup do
-        get :top, :format => format
-      end
-
-      should "have correct size" do
-        assert_equal 3, yield(@response.body).size
-      end
-
-      should "have versions as hashes" do
-        yield(@response.body).each do |arr|
-          assert arr[0].is_a?(Hash)
-        end
-      end
-
-      should "have correct version counts" do
-        arr = yield(@response.body)
-        assert_equal 3, arr[0][1]
-        assert_equal 2, arr[1][1]
-        assert_equal 1, arr[2][1]
-      end
-    end
-  end
-
-  context "On GET to top" do
-    setup do
-      @rubygem_1 = create(:rubygem)
-      @version_1 = create(:version, :rubygem => @rubygem_1)
-      @version_2 = create(:version, :rubygem => @rubygem_1)
-
-      @rubygem_2 = create(:rubygem)
-      @version_3 = create(:version, :rubygem => @rubygem_2)
-
-      @rubygem_3 = create(:rubygem)
-      @version_4 = create(:version, :rubygem => @rubygem_3)
-
-      3.times { Download.incr(@rubygem_1.name, @version_1.full_name) }
-      2.times { Download.incr(@rubygem_1.name, @version_2.full_name) }
-      Download.incr(@rubygem_2.name, @version_3.full_name)
-
-      stub(Download).most_downloaded_today(50){ [[@version_1, 3], [@version_2, 2], [@version_3, 1]] }
-    end
-
-    should_respond_to(:json) do |body|
-      MultiJson.load(body)['gems']
-    end
-
-    should_respond_to(:yaml) do |body|
-      YAML.load(body)[:gems]
-    end
-  end
-
   context "On GET to all" do
     setup do
       @rubygem_1 = create(:rubygem)
-      @version_1 = create(:version, :rubygem => @rubygem_1)
-      @version_2 = create(:version, :rubygem => @rubygem_1)
+      @version_1 = create(:version, rubygem: @rubygem_1)
+      @version_2 = create(:version, rubygem: @rubygem_1)
 
       @rubygem_2 = create(:rubygem)
-      @version_3 = create(:version, :rubygem => @rubygem_2)
+      @version_3 = create(:version, rubygem: @rubygem_2)
 
       @rubygem_3 = create(:rubygem)
-      @version_4 = create(:version, :rubygem => @rubygem_3)
+      @version_4 = create(:version, rubygem: @rubygem_3)
 
-      3.times { Download.incr(@rubygem_1.name, @version_1.full_name) }
-      2.times { Download.incr(@rubygem_1.name, @version_2.full_name) }
-      Download.incr(@rubygem_2.name, @version_3.full_name)
-
-      stub(Download).most_downloaded_all_time(50){ [[@version_1, 3], [@version_2, 2], [@version_3, 1]] }
+      GemDownload.bulk_update([[@version_1.full_name, 3], [@version_2.full_name, 2], [@version_3.full_name, 1]])
     end
 
-    should_respond_to(:json) do |body|
-      MultiJson.load(body)['gems']
-    end
+    context "with json" do
+      setup do
+        get :all, format: 'json'
+        @json = JSON.load(@response.body)
+      end
 
-    should_respond_to(:yaml) do |body|
-      YAML.load(body)[:gems]
+      should "show all latest versions" do
+        assert_equal 4, @json['gems'].count
+      end
+
+      should "have downloads for the top version" do
+        assert_equal 3, @json['gems'].first[1]
+      end
+
+      should "have total downloads for version2" do
+        assert_equal 2, @json['gems'][1][1]
+      end
     end
   end
 end

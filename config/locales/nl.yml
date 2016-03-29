@@ -1,5 +1,20 @@
 nl:
   update: Wijzig
+  sign_in: Inloggen
+  locale_name: "Nederlands"
+  sign_up: Aanmelden
+  footer_about: "RubyGems.org is de gem hosting service van de Ruby community. Publiceer and installeer je gems direct. Gebruik de API om meer informatie van beschikbare gems te vinden. Word een deelnemer en verbeter de site met jouw aanpassingen."
+  time_ago: ! '%{duration} geleden'
+  download_count: ! '%{count} downloads'
+  title: RubyGems.org
+  please_sign_up: Toegang geweigerd. Schrijf je in voor een account op https://rubygems.org
+  feed_latest: RubyGems.org | Recente Gems
+  form_disable_with: Een moment geduld...
+  edit: Wijzig
+  url: https://rubygems.org
+  feed_subscribed: RubyGems.org | Geabonneerde Gems
+  subtitle: De gem host voor de community
+  help_url: http://help.rubygems.org
   home:
     index:
       share:
@@ -16,7 +31,7 @@ nl:
         header: leren
         docs_subtitle: Gedetailleerde uitleg, stap voor stap instructies en naslagwerk
         install_rubygems: Installeer RubyGems
-        rubygems_subtitle: Ruby's bewezen packaging systeem
+        rubygems_subtitle: Ruby’s bewezen packaging systeem
       leaderboards:
         new: Nieuwe Gems
         no_downloaded: Geen downloads vandaag
@@ -41,19 +56,15 @@ nl:
       overview: Statistiekenoverzicht
       for: Statistieken voor %{for}
       total_downloads: ! 'Downloads totaal'
-      highest_rank: hoogste notering vandaag
       daily_downloads: ! '%{count} downloads vandaag'
-  time_ago: ! '%{duration} ago'
-  download_count: ! '%{count} downloads'
-  please_confirm: Toegang geweigerd. Controleer je RubyGems.org account.
   activerecord:
     errors:
       messages:
-        record_invalid: 
+        record_invalid:
     attributes:
       session:
         password: Wachtwoord
-        who: Email of handle
+        who: Email of Gebruikersnaam
       linkset:
         mail: Mailing-list-URL
         bugs: Bugtracker-URL
@@ -61,17 +72,16 @@ nl:
         code: source code URL
         wiki: Wiki URL
       user:
-        handle: Handle
+        handle: Gebruikersnaam
         email: Emailadres
         avatar: Avatar
         password: Wachtwoord
-  title: RubyGems.org
   rubygems:
     index:
       title: alle gems
       subtitle: die beginnen met %{prefix}
     dependencies:
-      header: afhankelijkheden
+      header: "%{title} afhankelijkheden"
     edit:
       title: Wijzig gem links
       other_fields_notice: Alle andere velden kunnen alleen gewijzigd worden door een nieuwe versie van de gem te publiceren.
@@ -84,8 +94,6 @@ nl:
       authors_header: Auteurs
       versions_header: Versies
       not_hosted_notice: Deze gem wordt momenteel niet gehost op rubygems.org.
-      yanked_notice: Deze gem is verwijderd, maar is nog steeds te downloaden voor andere gems die ervan afhankelijk zijn. Voor meer informatie of als het nodig is de gem permanent te verwijderen, zie %{more_info_link}.
-      yank_info_link_text: gebruik deze link
       owners_header: Eigenaren
       links:
         home: Startpagina
@@ -107,16 +115,13 @@ nl:
       latest: Laatste wijzigingen
       my_subscriptions: Mijn abonnementen
       no_owned: Je hebt nog geen gems gepubliceerd. Bekijk de instructies voor het %{creating_link} van een gem of het  %{migrating_link} van een gem vanaf RubyForge.
-  please_sign_up: Toegang geweigerd. Schrijf je in voor een account op http://rubygems.org
-  feed_latest: RubyGems.org | Recente Gems
   sessions:
     new:
       forgot_password: Wachtwoord vergeten?
-  form_disable_with: Een moment geduld...
   passwords:
     new:
       title: wachtwoord wijzigen
-      submit: Reset wachtwoord
+      submit: Wachtwoord wijzigen
       will_email_notice: We sturen een link om je wachtwoord te wijzigen.
     edit:
       title: reset wachtwoord
@@ -136,22 +141,17 @@ nl:
     create:
       title: aanmaken
       notice: Deze pagaina is verplaatst naar the nieuwe rubygems.org support site.
-  edit: Wijzig
   searches:
     show:
       exact_match: Exacte match
       subtitle: voor %{query}
-  url: http://rubygems.org
   versions:
     index:
       title: alle versies van %{name}
-      not_hosted_notice: Deze gem wordt momenteen niet gehost op rubygems.org
+      not_hosted_notice: Deze gem wordt momenteel niet gehost op rubygems.org
       versions_since: ! '%{count} versies sinds %{since}'
     version:
       yanked: verwijderd
-  feed_subscribed: RubyGems.org | Geabonneerde Gems
-  subtitle: De gem host voor de community
-  help_url: http://help.rubygems.org
   profiles:
     edit:
       title: Wijzig profiel
@@ -159,7 +159,7 @@ nl:
         confirm_reset: Weet je het zeker? Dit kan niet ongedaan worden gemaakt.
         title: API toegang
         key_is: Je API key is %{key}
-        link_text: gem commando's
+        link_text: gem commando’s
         reset: Reset mijn API key
         credentials: ! 'Als je de %{gem_commands_link} vanaf de command-line wilt gebruiken, heb je een %{gem_credentials_file} bestand nodig. Je kunt deze genereren met het volgende commando:'
       reset_password:
@@ -170,31 +170,29 @@ nl:
     application:
       footer:
         status: Status
-        discussion_forum: Forum
-        hosted_by: hosting door %{supporter}
-        resolved_with_title: DNS van %{resolver}
-        about: Over
         uptime: Uptime
-        optimized_by: Optimalisatie door %{optimizer}
-        optimized_by_title: Optimalisatie door %{optimizer}
-        contribute: Bijdragen
-        blog: Blog
-        guides: Leren
-        designed_by: ontwerp door %{designer}
+        source_code: code
+        data: Data
+        discussion_forum: Forum
         statistics: Stats
-        source_code: Code
+        blog: Blog
+        about: Over
         help: Help
-        supported_by: hosting door %{supporter}
-        tracking_by: tracking door %{tracker}
-        supported_by_title: Hosting door %{supporter}
-        resolved_with: DNS van %{resolver}
-        tracking_by_title: Tracking door %{tracker}
-        designed_by_title: Ontwerp van %{designer}
+        api: API
+        hosted_by: Hosting
+        optimized_by: Optimalisatie
+        contribute: Bijdragen
+        guides: Leren
+        designed_by: Ontwerp
+        supported_by: Ondersteunding
+        tracking_by: Tracking
+        resolved_with: DNS
+        monitored_by: Monitoring
         mobile: Mobiel
-        hosted_by_title: hosting door %{supporter}
       header:
         sign_in: inloggen
         sign_out: uitloggen
         dashboard: dashboard
-        sign_up: inschrijven
+        sign_up: aanmelden
         all_gems: alle gems
+        search_gem: "Gems Zoeken&hellip;"

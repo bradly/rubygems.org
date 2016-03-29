@@ -1,9 +1,10 @@
 require 'timeout'
 
-class Notifier < Struct.new(:url, :host_with_port, :rubygem, :version, :api_key)
+Notifier = Struct.new(:url, :protocol, :host_with_port, :rubygem, :version, :api_key) do
+  extend StatsD::Instrument
 
   def payload
-    rubygem.payload(version, host_with_port).to_json
+    rubygem.payload(version, protocol, host_with_port).to_json
   end
 
   def authorization
@@ -13,17 +14,18 @@ class Notifier < Struct.new(:url, :host_with_port, :rubygem, :version, :api_key)
   def perform
     timeout(5) do
       RestClient.post url,
-                      payload,
-                      :timeout        => 5,
-                      :open_timeout   => 5,
-                      'Content-Type'  => 'application/json',
-                      'Authorization' => authorization
+        payload,
+        :timeout        => 5,
+        :open_timeout   => 5,
+        'Content-Type'  => 'application/json',
+        'Authorization' => authorization
     end
     true
   rescue *(HTTP_ERRORS + [RestClient::Exception, SocketError, SystemCallError])
     WebHook.find_by_url(url).try(:increment!, :failure_count)
     false
   end
+  statsd_count_success :perform, 'Webhook.perform.success'
 
   private
 

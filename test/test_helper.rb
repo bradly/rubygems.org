@@ -1,41 +1,36 @@
 ENV["RAILS_ENV"] ||= "test"
 require File.expand_path('../../config/environment', __FILE__)
 
-require 'minitest/autorun'
-# Workaround https://github.com/rr/rr/pull/60
-Minitest::VERSION = Minitest::Unit::VERSION unless defined?(Minitest::VERSION)
 require 'rails/test_help'
-require 'rr'
+require 'mocha/mini_test'
+require 'bourne'
 require 'capybara/rails'
 require 'clearance/test_unit'
-require 'rubygems/package'
 require 'shoulda'
-
 require 'helpers/gem_helpers'
 
-I18n.enforce_available_locales = false
+RubygemFs.mock!
+Aws.config[:stub_responses] = true
 
-# Shim for compatibility with older versions of MiniTest
-MiniTest::Test = MiniTest::Unit::TestCase unless defined?(MiniTest::Test)
-
-class MiniTest::Test
-  include Rack::Test::Methods
+class ActiveSupport::TestCase
   include FactoryGirl::Syntax::Methods
   include GemHelpers
 
   def setup
-    RR.reset
     Redis.current.flushdb
-    $fog.directories.create(key: Gemcutter.config['s3_bucket'], public: true)
   end
 
   def page
     Capybara::Node::Simple.new(@response.body)
   end
 
-  def assert_changed(object, attribute, &block)
+  def requires_toxiproxy
+    skip("Toxiproxy is not running, but was required for this test.") unless Toxiproxy.running?
+  end
+
+  def assert_changed(object, attribute)
     original = object.send(attribute)
-    yield
+    yield if block_given?
     latest = object.reload.send(attribute)
     assert_not_equal original, latest,
       "Expected #{object.class} #{attribute} to change but still #{latest}"
@@ -45,7 +40,7 @@ end
 class ActionDispatch::IntegrationTest
   setup { host! Gemcutter::HOST }
 end
-Capybara.app_host = "http://#{Gemcutter::HOST}"
+Capybara.app_host = "#{Gemcutter::PROTOCOL}://#{Gemcutter::HOST}"
 
 class SystemTest < ActionDispatch::IntegrationTest
   include Capybara::DSL

@@ -1,40 +1,37 @@
 class Indexer
+  extend StatsD::Instrument
+
+  def self.indexer
+    # TODO: remove this after we upgrade rubygems client to 2.5.0+
+    @indexer ||=
+      begin
+        indexer = Gem::Indexer.new(Rails.root.join("server"), build_legacy: false)
+        indexer.define_singleton_method(:say) { |_| }
+        indexer
+      end
+  end
+
   def perform
     log "Updating the index"
     update_index
+    purge_cdn
     log "Finished updating the index"
   end
+  statsd_count_success :perform, 'Indexer.perform.success'
+  statsd_measure :perform, 'Indexer.perform'
 
   def write_gem(body, spec)
-    gem_file = directory.files.create(
-      :body   => body.string,
-      :key    => "gems/#{spec.original_name}.gem",
-      :public => true
-    )
+    RubygemFs.instance.store("gems/#{spec.original_name}.gem", body.string)
 
     self.class.indexer.abbreviate spec
     self.class.indexer.sanitize spec
 
-    gem_spec = directory.files.create(
-      :body   => Gem.deflate(Marshal.dump(spec)),
-      :key    => "quick/Marshal.4.8/#{spec.original_name}.gemspec.rz",
-      :public => true
-    )
-  end
-
-  def directory
-    fog.directories.get(Gemcutter.config['s3_bucket']) ||
-      fog.directories.create(key: Gemcutter.config['s3_bucket'])
+    RubygemFs.instance.store(
+      "quick/Marshal.4.8/#{spec.original_name}.gemspec.rz",
+      Gem.deflate(Marshal.dump(spec)))
   end
 
   private
-
-  def fog
-    $fog || Fog::Storage.new(
-      :provider => 'Local',
-      :local_root => Pusher.server_path
-    )
-  end
 
   def stringify(value)
     final = StringIO.new
@@ -46,11 +43,7 @@ class Indexer
   end
 
   def upload(key, value)
-    file = directory.files.create(
-      :body   => stringify(value),
-      :key    => key,
-      :public => true
-    )
+    RubygemFs.instance.store(key, stringify(value), 'surrogate-key' => 'full-index')
   end
 
   def update_index
@@ -62,10 +55,17 @@ class Indexer
     log "Uploaded prerelease specs index"
   end
 
+  def purge_cdn
+    if ENV['FASTLY_SERVICE_ID'] && ENV['FASTLY_API_KEY']
+      Fastly.purge_key('full-index')
+      log 'Purged index urls from fastly'
+    end
+  end
+
   def minimize_specs(data)
-    names     = Hash.new { |h,k| h[k] = k }
-    versions  = Hash.new { |h,k| h[k] = Gem::Version.new(k) }
-    platforms = Hash.new { |h,k| h[k] = k }
+    names     = Hash.new { |h, k| h[k] = k }
+    versions  = Hash.new { |h, k| h[k] = Gem::Version.new(k) }
+    platforms = Hash.new { |h, k| h[k] = k }
 
     data.each do |row|
       row[0] = names[row[0]]
@@ -89,15 +89,6 @@ class Indexer
   end
 
   def log(message)
-    Rails.logger.info "[GEMCUTTER:#{Time.now}] #{message}"
-  end
-
-  def self.indexer
-    @indexer ||=
-      begin
-        indexer = Gem::Indexer.new(Pusher.server_path, :build_legacy => false)
-        def indexer.say(message) end
-        indexer
-      end
+    Rails.logger.info "[GEMCUTTER:#{Time.zone.now}] #{message}"
   end
 end

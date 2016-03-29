@@ -2,7 +2,7 @@ class SubscriptionsController < ApplicationController
   before_action :find_rubygem
 
   def create
-    subscription = @rubygem.subscriptions.build(:user => current_user)
+    subscription = @rubygem.subscriptions.build(user: current_user)
     render_toggle_or_unacceptable(subscription.try(:save))
   end
 
@@ -11,7 +11,7 @@ class SubscriptionsController < ApplicationController
     render_toggle_or_unacceptable(subscription.try(:destroy))
   end
 
-protected
+  protected
 
   def render_toggle_or_unacceptable(success)
     if success
@@ -19,8 +19,7 @@ protected
         format.js { render :update }
       end
     else
-      render :text => '', :status => :forbidden
+      render text: '', status: :forbidden
     end
   end
-
 end
